@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Money plan calculator</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1b1b1b; --muted: #5f6368; --line: #e3e3e3; --accent: #0b57d0; --card: #f6f7f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #121417; --fg: #e8eaed; --muted: #9aa0a6; --line: #2a2e33; --accent: #8ab4f8; --card: #1b1f24; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 28px 0 8px; }
+  p.lead { color: var(--muted); margin: 0 0 8px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 14px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 14px; }
+  label { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--muted); }
+  input { margin-top: 3px; padding: 7px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); font-size: 1rem; width: 100%; }
+  input:focus { outline: 2px solid var(--accent); border-color: transparent; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-variant-numeric: tabular-nums; }
+  td { padding: 6px 4px; border-top: 1px solid var(--line); vertical-align: top; }
+  td.num { text-align: right; white-space: nowrap; font-weight: 600; }
+  td.note, p.note { color: var(--muted); font-size: 0.85rem; }
+  footer { color: var(--muted); font-size: 0.85rem; margin: 24px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Money plan calculator</h1>
+  <p class="lead">Change any number and everything below updates. Taxes use 2026 federal and Arkansas brackets for a single filer; they are estimates.</p>
+
+  <section>
+    <h2>Monthly budget</h2>
+    <div class="grid">
+      <label>Gross income (W-2) <input id="income" type="number" value="2500"></label>
+      <label>Side income (1099 profit) <input id="side" type="number" value="0"></label>
+      <label>Rent <input id="rent" type="number" value="650"></label>
+      <label>Utilities <input id="utilities" type="number" value="150"></label>
+      <label>Car payment <input id="carPayment" type="number" value="350"></label>
+      <label>Car insurance <input id="insurance" type="number" value="300"></label>
+      <label>Food <input id="food" type="number" value="320"></label>
+      <label>Gas <input id="gas" type="number" value="110"></label>
+      <label>Phone <input id="phone" type="number" value="25"></label>
+      <label>Misc <input id="misc" type="number" value="150"></label>
+    </div>
+    <div id="budgetOut"></div>
+    <h2>Months to a savings goal, by income</h2>
+    <div class="grid">
+      <label>Goal (for example a down payment) <input id="goal" type="number" value="11000"></label>
+    </div>
+    <div id="timelineOut"></div>
+  </section>
+
+  <section>
+    <h2>What a car really costs each month</h2>
+    <div class="grid">
+      <label>Price <input id="price" type="number" value="55000"></label>
+      <label>Down payment <input id="down" type="number" value="11000"></label>
+      <label>APR % <input id="apr" type="number" step="0.1" value="10"></label>
+      <label>Months <input id="months" type="number" value="72"></label>
+      <label>Full-coverage insurance / month <input id="carInsurance" type="number" value="600"></label>
+      <label>Miles per year <input id="miles" type="number" value="10000"></label>
+      <label>MPG <input id="mpg" type="number" step="0.1" value="18"></label>
+      <label>Fuel price $/gal <input id="fuelPrice" type="number" step="0.01" value="4.62"></label>
+    </div>
+    <div id="carOut"></div>
+  </section>
+
+  <section>
+    <h2>What the same money grows to if invested</h2>
+    <div class="grid">
+      <label>Invested per month <input id="monthly" type="number" value="500"></label>
+      <label>Return % per year <input id="rate" type="number" step="0.1" value="7"></label>
+    </div>
+    <div id="investOut"></div>
+  </section>
+
+  <footer>Source: app.js in this repository. Same formulas as money_plan.py.</footer>
+</main>
+<script type="module" src="app.js"></script>
+</body>
+</html>
