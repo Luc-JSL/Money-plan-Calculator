@@ -20,7 +20,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Clip the last N seconds of a Twitch stream when chat explodes.")
     ap.add_argument("channels", nargs="*", help="Twitch logins to watch (or set CHANNELS in .env)")
     ap.add_argument("--seconds", type=float, default=None, help="seconds before the explosion to keep (default 30)")
-    ap.add_argument("--quality", default=None, help="streamlink quality, default 720p60,720p,480p,best")
+    ap.add_argument("--quality", default=None, help="streamlink quality, default best (source, usually 1080p60)")
     ap.add_argument("--no-vertical", action="store_true", help="skip the 9:16 render")
     args = ap.parse_args()
 

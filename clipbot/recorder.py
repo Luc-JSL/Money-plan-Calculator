@@ -23,7 +23,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 SEGMENT_SECONDS = 2          # Twitch keyframes every ~2s; -c copy can only cut there
-DEFAULT_QUALITY = "720p60,720p,480p,best"
+DEFAULT_QUALITY = "best"
 
 
 def have_streamlink() -> bool:

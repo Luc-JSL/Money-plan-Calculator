@@ -13,7 +13,7 @@ Two ways to get the video, chosen with `CLIP_MODE`:
 | How | [streamlink](https://streamlink.github.io) keeps a rolling buffer of the stream on disk; ffmpeg cuts the last 30s | Official Create Clip API, then yt-dlp download |
 | Clip length | Exactly `CLIP_PRE_SECONDS` (+ `CLIP_POST_SECONDS`) | Twitch's default (~30s) |
 | Which streams | `CHANNELS` you list (top-stream discovery needs a Twitch app) | `CHANNELS` + top N live streams of the game |
-| Cost | ~3 MB/s download per watched channel at 720p60 | Almost nothing |
+| Cost | About 1 MB/s download per watched channel at 1080p60 | Almost nothing |
 
 ```
 channels  ->  streamlink -> ffmpeg rolling buffer (local mode)
@@ -63,6 +63,10 @@ python clip30.py xqc --seconds 45        # longer look-back
 ```bash
 python -m clipbot run
 ```
+
+Clips are taken at the stream's source quality (`QUALITY=best`, normally 1080p60), which
+matters because the split layout zooms the game about 2x. Watching many channels on a slow
+connection? `QUALITY=720p60,720p,best` halves the bandwidth.
 
 In local mode the log shows `recording started` per channel once streamlink finds the
 stream; offline channels are retried every 20 seconds until they go live. A trigger looks
@@ -274,7 +278,7 @@ pulled by streamlink into the rolling buffer and cut into a clip.
 | `no saved token` | Only needed for `CLIP_MODE=twitch` or `TOP_STREAMS`; run `python -m clipbot auth` |
 | `has no buffered video` | streamlink has not found the stream yet (offline, or the first seconds after it went live) |
 | `error: No playable streams found` in the log | Channel offline, wrong login, or streamlink needs an update: `pip install -U streamlink` |
-| Buffer eats disk | Lower `BUFFER_SECONDS` (180s at 720p60 is about 0.5 GB per channel) or `QUALITY=480p` |
+| Buffer eats disk or bandwidth | Lower `BUFFER_SECONDS` (180s is about 180 MB per channel at 1080p60) or set `QUALITY=720p60,720p,best` |
 | `game 'Grand Theft Auto VI' not found` | The category is not live yet; use `CHANNELS` meanwhile |
 | `cannot clip <channel> (HTTP 403)` | That streamer restricted clipping; the bot skips them for an hour |
 | Clips not downloading | `pip install -U yt-dlp` (Twitch changes its CDN often) |

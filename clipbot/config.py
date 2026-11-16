@@ -113,7 +113,7 @@ class Config:
     clip_pre_seconds: float = 30.0   # local mode: seconds before the trigger to keep
     clip_post_seconds: float = 0.0   # local mode: seconds after the trigger to keep
     buffer_seconds: float = 180.0    # local mode: rolling buffer per channel
-    quality: str = "720p60,720p,480p,best"  # local mode: streamlink quality preference
+    quality: str = "best"            # local mode: streamlink quality ("best" = the stream's source, usually 1080p60)
     has_delay: bool = False          # twitch mode: Twitch "has_delay" when creating clips
     download: bool = True
     vertical: bool = True
