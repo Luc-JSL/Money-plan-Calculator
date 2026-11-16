@@ -14,7 +14,10 @@ first if anything below is unclear.
 - `twitch_api.py`: Helix client: games, streams, users, create clip, get clips, wait_for_clip.
 - `irc.py`: anonymous TMI chat reader; `ChatPool.set_channels()` joins/parts; `parse_line()`.
 - `detector.py`: `SpikeDetector.observe()` returns a `Trigger`; pure logic with injectable clock.
-- `media.py`: `download_clip()` via yt-dlp, `render_vertical()` via ffmpeg.
+- `media.py`: `download_clip()` via yt-dlp, `render_vertical(ass_path=...)` via ffmpeg.
+- `captions.py`: faster-whisper words -> `group_words()` -> `write_ass()`; injectable transcriber.
+- `retention.py`: `enforce(root, max_gb, max_clips)` prunes oldest clip groups.
+- `post.py`: optional TikTok upload through the `tiktok-uploader` package (opt-in, risky).
 - `runner.py`: `Runner` ties discovery, chat and clipping together; `make_clip()` is the pipeline.
 - `__main__.py`: CLI `auth | doctor | streams | clip <login> | run | history`.
 
@@ -28,8 +31,9 @@ first if anything below is unclear.
 
 ## Tuning
 Detector knobs are `DET_*` variables in `.env` (documented in `.env.example`).
-When a user says "too many clips" raise `DET_SPIKE_MULTIPLIER` / `DET_MIN_HYPE_FRACTION`;
-"missing moments" lower them; "clips start too late" set `HAS_DELAY=true`.
+When a user says "too many clips" raise `DET_SPIKE_MULTIPLIER` / `DET_MIN_HYPE_FRACTION` /
+`DET_SUSTAIN`; "missing moments" lower them; "clips start too late" set `HAS_DELAY=true`;
+"it clipped a raid" check `DET_RAID_SUPPRESS` and the raid USERNOTICE parsing in `irc.py`.
 Always run `python -m unittest discover -s tests` after changing `detector.py` and add a
 test case that reproduces the chat pattern in question (see `tests/test_detector.py`,
 helper `chatter()`).
@@ -38,6 +42,7 @@ helper `chatter()`).
 - Only official Twitch endpoints (Helix + anonymous IRC). Never add stream recording,
   GQL scraping or browser-token tricks.
 - Network calls go through `clipbot/http.py:request` so tests can stub them; keep it that way.
-- Do not auto-post to TikTok/YouTube without the user asking; explain the API/ToS limits.
+- Never turn on `AUTO_POST` yourself; it is the user's call and carries a TikTok ban risk.
+- Related repos and what was borrowed are listed in README-clipbot.md section 6.
 - Never commit `.env`, `data/` or clip files.
 - Keep the test suite green; CI runs it on every push.

@@ -112,7 +112,7 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
         """Messages flowing through the pool queue reach the detector and produce a clip."""
         self.cfg.detector = DetectorConfig(warmup=0, short_window=10, long_window=20, min_unique_users=3,
                                            min_short_rate=0.5, spike_multiplier=1.0, min_baseline_rate=0.05,
-                                           cooldown=100, min_hype_fraction=0.3)
+                                           cooldown=100, min_hype_fraction=0.3, sustain=0)
         self.runner = Runner(self.cfg, helix=self.helix)
         self.runner.streams = {"big": stream("big", 1)}
         from clipbot.irc import ChatMessage

@@ -76,21 +76,33 @@ def vertical_filter(width: int = 1080, height: int = 1920) -> str:
     )
 
 
-def render_vertical(src: Path, dest: Path, timeout: float = 300.0) -> Path | None:
-    """Produce a 1080x1920 version of `src` for TikTok / Shorts / Reels."""
+def render_vertical(src: Path, dest: Path, timeout: float = 300.0, ass_path: Path | None = None) -> Path | None:
+    """Produce a 1080x1920 version of `src` for TikTok / Shorts / Reels.
+    If `ass_path` is given, those subtitles are burned in (libass)."""
     if not have_ffmpeg():
         log.warning("ffmpeg not found; skipping vertical render")
         return None
-    dest = Path(dest)
+    src, dest = Path(src).resolve(), Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
+    vf = vertical_filter()
+    cwd = None
+    if ass_path is not None:
+        # The ass filter parses ':' and '\' in its argument, so run ffmpeg inside the
+        # subtitle's folder and pass only the (sanitised) file name.
+        ass_path = Path(ass_path).resolve()
+        cwd = str(ass_path.parent)
+        vf = vf + f",ass={safe_name(ass_path.name)}"
+        if safe_name(ass_path.name) != ass_path.name:
+            log.warning("caption file name %s is not ffmpeg-safe; skipping captions", ass_path.name)
+            vf, cwd = vertical_filter(), None
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src),
-        "-filter_complex", vertical_filter(),
+        "-filter_complex", vf,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-r", "30",
-        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dest),
+        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(dest.resolve()),
     ]
     try:
-        subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
+        subprocess.run(cmd, check=True, timeout=timeout, capture_output=True, cwd=cwd)
     except subprocess.CalledProcessError as e:
         log.error("ffmpeg failed: %s", e.stderr.decode(errors="replace")[-800:])
         return None

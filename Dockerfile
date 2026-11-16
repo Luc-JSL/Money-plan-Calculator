@@ -1,9 +1,11 @@
 FROM python:3.12-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg ca-certificates fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Optional extras (captions). Comment out to build faster / smaller.
+RUN pip install --no-cache-dir faster-whisper
 COPY clipbot ./clipbot
 ENV DATA_DIR=/data PYTHONUNBUFFERED=1
 VOLUME ["/data"]

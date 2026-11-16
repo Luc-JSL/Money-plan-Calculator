@@ -79,6 +79,9 @@ For every watched channel the bot keeps the last 120 seconds of chat and compare
 - at least `DET_MIN_HYPE_FRACTION` (35%) of the burst must look like hype: emotes,
   LUL / KEKW / POG style words, "no way", "clip it", all caps, "?????",
 - one user can never make up more than half of the burst (spam protection),
+- the spike must hold for `DET_SUSTAIN` (3s): a single emote wave is not a moment,
+- an incoming raid silences the channel for `DET_RAID_SUPPRESS` (120s), because
+  raid spam looks exactly like hype,
 - a channel is observed for `DET_WARMUP` (60s) before it may trigger, and waits
   `DET_COOLDOWN` (120s) between clips.
 
@@ -117,26 +120,63 @@ from what you do with them:
 There is no guarantee of income. What the bot removes is the manual work of watching
 dozens of streams at once.
 
-## 5. Posting the clips
+## 5. Captions, disk budget and posting
 
-Posting to TikTok / YouTube is intentionally not automated here: TikTok's API requires an
-audited app for public posting, YouTube's quota allows ~6 uploads/day on a new project,
-and both platforms down-rank obviously automated accounts. The intended workflow is:
-Discord webhook pings you -> open `...-vertical.mp4` -> add a caption / hook text in
-CapCut or TikTok's editor -> post. The `score` and `sample` chat lines in
-`data/clips.jsonl` tell you which ones to post first.
+**Captions.** With `pip install faster-whisper` and `CAPTIONS=true` (default), each clip is
+transcribed on the CPU (about 10-20s for a 30s clip with the `small` model) and the words
+are burned into the vertical video as big centred captions, four words at a time. Without
+faster-whisper the vertical render simply has no captions.
 
-## 6. Tests
+**Disk budget.** `MAX_CLIPS_GB` / `MAX_CLIPS_KEEP` prune the oldest clips (raw, vertical
+and captions together) after every new clip, so the bot can run for weeks unattended.
+
+**Posting.** The default workflow is manual: the Discord webhook pings you, you open
+`...-vertical.mp4`, add a hook line in CapCut or TikTok's editor and post. The `score`
+and `sample` chat lines in `data/clips.jsonl` tell you which ones to post first.
+
+Automatic TikTok posting exists but is **off by default** (`AUTO_POST=false`). It uses the
+MIT-licensed [tiktok-uploader](https://github.com/wkaisertexas/tiktok-uploader) package,
+which drives a headless browser with cookies exported from tiktok.com:
+
+```bash
+pip install tiktok-uploader && playwright install chromium
+# export cookies.txt from tiktok.com with a "Get cookies.txt" browser extension
+python -m clipbot post data/clips/<channel>/<file>-vertical.mp4 -d "caption #gta6"
+```
+
+Set `AUTO_POST=true` and `TIKTOK_COOKIES=/path/cookies.txt` to post every clip with
+`POST_TEMPLATE`. Know the risks: this is against TikTok's terms, accounts get
+rate-limited or banned, and TikTok changes its upload page often so the package can
+break. Use a dedicated clips account and keep volume human (a handful a day).
+YouTube Shorts posting is not built in; [clipmint](https://github.com/kleZ799/clipmint)
+has a working YouTube upload if you want one.
+
+## 6. Related open-source projects
+
+Reviewed while building this (none are required):
+
+| Project | What it is | What we took |
+|---|---|---|
+| [Higuy3000/twitch-clipbot](https://github.com/Higuy3000/twitch-clipbot) | Chat-spike clipper that records the stream with streamlink | The "sustain" rule, whisper captions and clip retention ideas (re-implemented; repo has no license) |
+| [bihanikeshav/TwitchSnipBot](https://github.com/bihanikeshav/TwitchSnipBot) | Chat-feature + LSTM highlight scorer, web app | Feature ideas (unique-user ratio, repetition) for a future ML scorer |
+| [d0xa/ChachoBot](https://github.com/d0xa/ChachoBot) | Chat hype + audio-volume spikes, posts to Discord | Audio spikes need stream recording; not adopted |
+| [wkaisertexas/tiktok-uploader](https://github.com/wkaisertexas/tiktok-uploader) | Playwright TikTok uploader (MIT, 780+ stars) | Optional `post` command / `AUTO_POST` |
+| [lay295/TwitchDownloader](https://github.com/lay295/TwitchDownloader) | Clip/VOD downloader with chat render (4k stars) | Alternative to yt-dlp if Twitch breaks it; can render chat into the video |
+| [kleZ799/clipmint](https://github.com/kleZ799/clipmint) | Local AI clipper for VODs with YouTube upload | Post-stream VOD clipping and YouTube posting, if wanted later |
+| [VadlapatiKarthik/autoclipper](https://github.com/VadlapatiKarthik/autoclipper) | Cloud pipeline: Twitch/Kick/YouTube -> subtitles -> YouTube upload | Heavy (Celery, Redis, GPT); reference only |
+| [ZiedYT/automatic-twitch-clipper](https://github.com/ZiedYT/automatic-twitch-clipper) | Oldest chat-based clipper | Uses scraped browser tokens; avoided |
+
+## 7. Tests
 
 ```bash
 python -m unittest discover -s tests -v
 ```
 
-No network needed. The suite covers the detector (bursts, spam, cooldown, big chats,
-reconnect gaps), IRC parsing plus a fake Twitch chat server, the Helix client (token
-refresh, 429 / 503 handling, clip polling), the device-code login, the orchestrator
-(stream selection, hourly cap, blocked channels, chat-to-clip path) and a real ffmpeg
-vertical render.
+No network needed. The suite covers the detector (bursts, spam, sustain, raids, cooldown,
+big chats, reconnect gaps), IRC parsing plus a fake Twitch chat server, the Helix client
+(token refresh, 429 / 503 handling, clip polling), the device-code login, the orchestrator
+(stream selection, hourly cap, blocked channels, chat-to-clip path), caption grouping and
+a real ffmpeg vertical render with burned-in subtitles, retention pruning and posting.
 
 ## Troubleshooting
 
@@ -147,4 +187,6 @@ vertical render.
 | `cannot clip <channel> (HTTP 403)` | That streamer restricted clipping; the bot skips them for an hour |
 | Clips not downloading | `pip install -U yt-dlp` (Twitch changes its CDN often) |
 | No vertical files | Install ffmpeg or set `VERTICAL=false` |
+| No captions on clips | `pip install faster-whisper`; first run downloads the model |
+| Clips fire on raids / emote waves | Raise `DET_SUSTAIN` to 5; raids are already suppressed |
 | Too many / too few clips | See tuning tips above; changes in `.env` apply on restart |

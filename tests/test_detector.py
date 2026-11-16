@@ -15,7 +15,7 @@ class FakeClock:
 def cfg(**kw):
     base = dict(short_window=10, long_window=120, warmup=60, spike_multiplier=3.0, min_short_rate=1.0,
                 min_baseline_rate=0.25, min_unique_users=5, min_hype_fraction=0.35, clip_request_users=3,
-                cooldown=120)
+                cooldown=120, sustain=0.0)
     base.update(kw)
     return DetectorConfig(**base)
 

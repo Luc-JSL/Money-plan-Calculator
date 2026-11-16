@@ -10,6 +10,7 @@ from .auth import AuthError, TokenManager, TokenStore
 from .config import Config
 from .detector import SpikeDetector, Trigger
 from .irc import ChatPool
+from . import captions, post, retention
 from .media import download_clip, render_vertical, safe_name
 from .notify import discord
 from .storage import ClipLog, ClipRecord, RateLimiter
@@ -96,6 +97,11 @@ class Runner:
         async for m in self.pool.messages():
             if m.channel not in self.streams:
                 continue
+            if m.kind == "raid":
+                log.info("raid into %s (%s); ignoring chat for %.0fs", m.channel, m.text or m.user,
+                         self.cfg.detector.raid_suppress)
+                self.detector.suppress(m.channel, self.cfg.detector.raid_suppress)
+                continue
             trig = self.detector.observe(m.channel, m.user, m.text, m.emote_count)
             if trig:
                 asyncio.create_task(self.handle_trigger(trig))
@@ -153,10 +159,19 @@ class Runner:
                 rec.file = str(path)
                 log.info("downloaded %s", path)
                 if self.cfg.vertical:
-                    vpath = render_vertical(path, path.with_name(path.stem + "-vertical.mp4"))
+                    ass = None
+                    if self.cfg.captions:
+                        ass = captions.make_captions(path, path.with_suffix(".ass"), model_size=self.cfg.whisper_model)
+                    vpath = render_vertical(path, path.with_name(path.stem + "-vertical.mp4"), ass_path=ass)
                     if vpath:
                         rec.vertical_file = str(vpath)
-                        log.info("rendered vertical %s", vpath)
+                        log.info("rendered vertical %s%s", vpath, " with captions" if ass else "")
+                        if self.cfg.auto_post:
+                            desc = self.cfg.post_template.format(
+                                display_name=stream.display_name or stream.login, login=stream.login,
+                                game=stream.game_name, title=stream.title, url=url)
+                            rec.posted = post.post_tiktok(vpath, desc, self.cfg.tiktok_cookies)
+            retention.enforce(self.cfg.clips_dir, self.cfg.max_clips_gb, self.cfg.max_clips_keep)
         self.log.append(rec)
         if self.cfg.discord_webhook:
             discord(self.cfg.discord_webhook,

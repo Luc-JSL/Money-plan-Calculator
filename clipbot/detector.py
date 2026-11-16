@@ -89,6 +89,8 @@ class ChannelState:
         self.last_event = first_seen
         self.last_trigger = -1e18
         self.triggers = 0
+        self.hot_since: float | None = None   # when the current spike streak started
+        self.suppressed_until = -1e18
 
 
 class SpikeDetector:
@@ -100,6 +102,15 @@ class SpikeDetector:
 
     def forget(self, channel: str) -> None:
         self.channels.pop(channel, None)
+
+    def suppress(self, channel: str, seconds: float, ts: float | None = None) -> None:
+        """Ignore a channel for a while (e.g. after an incoming raid floods chat)."""
+        now = self.clock() if ts is None else ts
+        st = self.channels.get(channel)
+        if st is None:
+            st = self.channels[channel] = ChannelState(first_seen=now)
+        st.suppressed_until = max(st.suppressed_until, now + seconds)
+        st.hot_since = None
 
     def observe(self, channel: str, user: str, text: str, emote_count: int = 0,
                 ts: float | None = None) -> Trigger | None:
@@ -121,7 +132,7 @@ class SpikeDetector:
 
         if now - st.first_seen < cfg.warmup:
             return None
-        if now - st.last_trigger < cfg.cooldown:
+        if now - st.last_trigger < cfg.cooldown or now < st.suppressed_until:
             return None
 
         short_cut = now - cfg.short_window
@@ -140,16 +151,26 @@ class SpikeDetector:
         hype_frac = sum(e.hype for e in short) / len(short) if short else 0.0
         clip_users = {e.user for e in short if e.clip_req}
 
-        reason = None
         if top_share > self.max_user_share:
+            st.hot_since = None
             return None
+        threshold = max(cfg.min_short_rate, baseline * cfg.spike_multiplier)
+        crowd_ok = len(users) >= cfg.min_unique_users and hype_frac >= cfg.min_hype_fraction
+        hot = short_rate >= threshold and crowd_ok
+        # A streak survives small dips (down to 75% of the threshold) but not a collapse.
+        if hot and st.hot_since is None:
+            st.hot_since = now
+        elif short_rate < threshold * 0.75 or not crowd_ok:
+            st.hot_since = None
+
+        reason = None
         if len(clip_users) >= cfg.clip_request_users:
             reason = "clip_requests"
-        elif (short_rate >= cfg.min_short_rate and short_rate >= baseline * cfg.spike_multiplier
-              and len(users) >= cfg.min_unique_users and hype_frac >= cfg.min_hype_fraction):
+        elif hot and st.hot_since is not None and now - st.hot_since >= cfg.sustain:
             reason = "spike"
         if reason is None:
             return None
+        st.hot_since = None
 
         ratio = short_rate / baseline
         score = ratio * (0.5 + hype_frac) + 2.0 * len(clip_users)

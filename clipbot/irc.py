@@ -31,6 +31,7 @@ class ChatMessage:
     emote_count: int
     ts: float = field(default_factory=time.time)
     tags: dict[str, str] = field(default_factory=dict)
+    kind: str = "chat"      # "chat" for PRIVMSG, "raid" for an incoming raid USERNOTICE
 
 
 def parse_tags(raw: str) -> dict[str, str]:
@@ -65,6 +66,10 @@ def parse_line(line: str) -> ChatMessage | None:
     if not rest.startswith(":"):
         return None
     prefix, _, rest = rest[1:].partition(" ")
+    if rest.startswith("USERNOTICE ") and tags.get("msg-id") == "raid":
+        channel = rest[len("USERNOTICE "):].partition(" ")[0].strip().lstrip("#").lower()
+        return ChatMessage(channel=channel, user=tags.get("login", ""), user_id=tags.get("user-id", ""),
+                           text=tags.get("system-msg", ""), emote_count=0, tags=tags, kind="raid")
     if not rest.startswith("PRIVMSG "):
         return None
     rest = rest[len("PRIVMSG "):]

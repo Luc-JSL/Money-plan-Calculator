@@ -29,6 +29,7 @@ class ClipRecord:
     duration: float = 0.0
     stream_title: str = ""
     viewers: int = 0
+    posted: bool = False
 
 
 class ClipLog:

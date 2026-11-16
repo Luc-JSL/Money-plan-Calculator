@@ -4,10 +4,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import signal
 import sys
 
-from . import __version__
+from . import __version__, captions, post
 from .auth import AuthError, TokenManager, TokenStore, validate
 from .config import Config, load_dotenv
 from .media import have_ffmpeg, have_ytdlp
@@ -45,6 +46,13 @@ def cmd_doctor(cfg: Config) -> int:
     check("TWITCH_CLIENT_ID set", bool(cfg.client_id), "create an app at dev.twitch.tv/console/apps")
     check("ffmpeg available", have_ffmpeg(), "install ffmpeg (needed for VERTICAL=1)")
     check("yt-dlp available", have_ytdlp(), "pip install yt-dlp (needed for DOWNLOAD=1)")
+    if cfg.captions:
+        print(f"[{'OK ' if captions.available() else '-- '}] faster-whisper for captions"
+              f"{'' if captions.available() else ' - optional: pip install faster-whisper'}")
+    if cfg.auto_post:
+        check("tiktok-uploader installed", post.available(), "pip install tiktok-uploader && playwright install chromium")
+        check("TIKTOK_COOKIES file exists", bool(cfg.tiktok_cookies) and os.path.isfile(cfg.tiktok_cookies),
+              "export cookies.txt from tiktok.com (see README)")
     tokens = TokenStore(cfg.token_path).load()
     check("saved Twitch token", tokens is not None, "run: python -m clipbot auth")
     if tokens:
@@ -118,11 +126,18 @@ def cmd_run(cfg: Config) -> int:
     return 0
 
 
+def cmd_post(cfg: Config, video: str, description: str) -> int:
+    ok = post.post_tiktok(video, description, cfg.tiktok_cookies)
+    print("posted" if ok else "post failed (see log)")
+    return 0 if ok else 1
+
+
 def cmd_history(cfg: Config, limit: int) -> int:
     from .storage import ClipLog
     recs = ClipLog(cfg.log_path).read()
     for r in recs[-limit:]:
-        print(f"{r.created_at or '?':<22} {r.channel:<20} {r.reason:<13} score={r.score:<6} {r.url}")
+        flag = " [posted]" if r.posted else ""
+        print(f"{r.created_at or '?':<22} {r.channel:<20} {r.reason:<13} score={r.score:<6} {r.url}{flag}")
     print(f"{len(recs)} clips total")
     return 0
 
@@ -139,6 +154,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("channel")
     p = sub.add_parser("history", help="list clips made so far")
     p.add_argument("-n", type=int, default=50)
+    p = sub.add_parser("post", help="post a vertical clip to TikTok (needs tiktok-uploader + TIKTOK_COOKIES)")
+    p.add_argument("video")
+    p.add_argument("-d", "--description", default="")
     args = ap.parse_args(argv)
 
     load_dotenv(args.env)
@@ -154,6 +172,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_clip(cfg, args.channel)
     if args.cmd == "history":
         return cmd_history(cfg, args.n)
+    if args.cmd == "post":
+        return cmd_post(cfg, args.video, args.description)
     return cmd_run(cfg)
 
 

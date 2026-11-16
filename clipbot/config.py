@@ -67,6 +67,8 @@ class DetectorConfig:
     min_hype_fraction: float = 0.35   # fraction of burst messages that look like hype
     clip_request_users: int = 3       # distinct users typing "clip" -> trigger
     cooldown: float = 120.0           # per-channel seconds between clips
+    sustain: float = 3.0              # spike must hold this long (0 = fire instantly)
+    raid_suppress: float = 120.0      # ignore a channel this long after an incoming raid
 
     @classmethod
     def from_env(cls) -> "DetectorConfig":
@@ -82,6 +84,8 @@ class DetectorConfig:
             min_hype_fraction=_env_float("DET_MIN_HYPE_FRACTION", d.min_hype_fraction),
             clip_request_users=_env_int("DET_CLIP_REQUEST_USERS", d.clip_request_users),
             cooldown=_env_float("DET_COOLDOWN", d.cooldown),
+            sustain=_env_float("DET_SUSTAIN", d.sustain),
+            raid_suppress=_env_float("DET_RAID_SUPPRESS", d.raid_suppress),
         )
 
 
@@ -98,6 +102,13 @@ class Config:
     has_delay: bool = False          # Twitch "has_delay" when creating clips
     download: bool = True
     vertical: bool = True
+    captions: bool = True            # burn auto-captions into the vertical clip (needs faster-whisper)
+    whisper_model: str = "small"     # faster-whisper model size: tiny/base/small/medium
+    max_clips_gb: float = 5.0        # prune oldest clips past this size (0 = off)
+    max_clips_keep: int = 300        # or past this many clips (0 = off)
+    auto_post: bool = False          # post every vertical clip to TikTok (opt-in, see README)
+    tiktok_cookies: str = ""         # path to a Netscape cookies.txt exported from tiktok.com
+    post_template: str = "{display_name} on Twitch #twitch #clips #gta6 #gtavi"
     data_dir: Path = Path("data")
     discord_webhook: str = ""
     max_clips_per_hour: int = 30     # global safety valve
@@ -119,6 +130,13 @@ class Config:
             has_delay=_env_bool("HAS_DELAY", d.has_delay),
             download=_env_bool("DOWNLOAD", d.download),
             vertical=_env_bool("VERTICAL", d.vertical),
+            captions=_env_bool("CAPTIONS", d.captions),
+            whisper_model=_env("WHISPER_MODEL", d.whisper_model),
+            max_clips_gb=_env_float("MAX_CLIPS_GB", d.max_clips_gb),
+            max_clips_keep=_env_int("MAX_CLIPS_KEEP", d.max_clips_keep),
+            auto_post=_env_bool("AUTO_POST", d.auto_post),
+            tiktok_cookies=_env("TIKTOK_COOKIES"),
+            post_template=_env("POST_TEMPLATE", d.post_template),
             data_dir=Path(_env("DATA_DIR", str(d.data_dir))),
             discord_webhook=_env("DISCORD_WEBHOOK"),
             max_clips_per_hour=_env_int("MAX_CLIPS_PER_HOUR", d.max_clips_per_hour),
@@ -148,4 +166,8 @@ class Config:
             problems.append("Nothing to watch: set TOP_STREAMS > 0 or CHANNELS")
         if self.detector.short_window >= self.detector.long_window:
             problems.append("DET_SHORT_WINDOW must be smaller than DET_LONG_WINDOW")
+        if self.auto_post and not self.tiktok_cookies:
+            problems.append("AUTO_POST=true needs TIKTOK_COOKIES (path to cookies.txt)")
+        if self.auto_post and not (self.download and self.vertical):
+            problems.append("AUTO_POST=true needs DOWNLOAD=true and VERTICAL=true")
         return problems
