@@ -23,7 +23,7 @@ first if anything below is unclear.
   `PostState` file; `post_pending()` drains the queue. TikTok via `tiktok-uploader` (risky).
 - `youtube.py`: official YouTube Data API: loopback OAuth (`youtube-auth`) + resumable upload.
 - `recorder.py`: local mode. `Recorder` supervises `streamlink --stdout | ffmpeg -f segment` into a
-  rolling buffer of 2s TS files; `cut()` concatenates the last N seconds into an MP4.
+  rolling buffer of 2s TS files; `cut()` joins and re-encodes the last N seconds into an MP4 (GPU encoder if present, libx264 fallback).
 - `runner.py`: `Runner` ties discovery, chat and clipping together. Local mode:
   `make_clip_local()` -> `_finish()`; twitch mode: `make_clip()` -> `_finish()`.
 - `__main__.py`: CLI `auth | doctor | streams | clip <login> | run | history`.

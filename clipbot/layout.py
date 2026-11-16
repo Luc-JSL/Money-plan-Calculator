@@ -20,6 +20,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+os.environ.setdefault("OPENCV_LOG_LEVEL", "ERROR")
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")   # silence "[h264 @ ...]" decoder chatter
 import statistics
 import subprocess
 from pathlib import Path

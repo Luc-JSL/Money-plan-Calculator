@@ -278,6 +278,8 @@ pulled by streamlink into the rolling buffer and cut into a clip.
 | `no saved token` | Only needed for `CLIP_MODE=twitch` or `TOP_STREAMS`; run `python -m clipbot auth` |
 | `has no buffered video` | streamlink has not found the stream yet (offline, or the first seconds after it went live) |
 | `error: No playable streams found` in the log | Channel offline, wrong login, or streamlink needs an update: `pip install -U streamlink` |
+| Red `[h264 @ ...] Invalid NAL unit size` lines | Harmless decoder chatter from a damaged file; update to the current version, which re-encodes clips at cut time and silences it |
+| Cutting a clip takes long | Clips are encoded on the GPU when ffmpeg has NVENC / QSV / AMF / VideoToolbox, otherwise on the CPU (about 10-20 s per 30 s clip at 1080p60) |
 | Buffer eats disk or bandwidth | Lower `BUFFER_SECONDS` (180s is about 180 MB per channel at 1080p60) or set `QUALITY=720p60,720p,best` |
 | `game 'Grand Theft Auto VI' not found` | The category is not live yet; use `CHANNELS` meanwhile |
 | `cannot clip <channel> (HTTP 403)` | That streamer restricted clipping; the bot skips them for an hour |

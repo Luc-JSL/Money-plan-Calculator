@@ -119,3 +119,25 @@ class EndToEndTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EncoderFallbackTests(unittest.TestCase):
+    def test_falls_back_to_libx264_when_hardware_encoder_fails(self):
+        from clipbot import media
+        media._ENCODERS, media._FAILED = ["h264_nvenc", "libx264"], set()
+        try:
+            used = []
+
+            def build(venc):
+                used.append(venc[1])
+                return ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=5",
+                        "-t", "0.4", *venc, "-f", "null", "-"]
+
+            ok = media.run_encode(build, 60, "test")
+            self.assertTrue(ok)
+            self.assertEqual(used[-1], "libx264")
+            if used[0] == "h264_nvenc":                 # no GPU here: nvenc failed and was blacklisted
+                self.assertIn("h264_nvenc", media._FAILED)
+                self.assertEqual(media.available_encoders(), ["libx264"])
+        finally:
+            media._ENCODERS, media._FAILED = None, set()

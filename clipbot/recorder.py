@@ -67,30 +67,47 @@ def select_segments(segments: list[Segment], trigger_ts: float, pre: float, post
     return [s for s in segments if s.end > lo and s.start < hi]
 
 
-def concat_segments(segments: list[Segment], dest: Path, timeout: float = 120.0) -> Path | None:
-    """Losslessly join TS segments into an MP4 with ffmpeg's concat demuxer."""
+def concat_segments(segments: list[Segment], dest: Path, timeout: float = 300.0,
+                    trim_start: float = 0.0, duration: float | None = None, copy: bool = False) -> Path | None:
+    """Join TS segments into an MP4. By default the video is re-encoded: Twitch
+    segments carry ad splices and bitrate switches, and a stream-copied join
+    of those plays back with broken frames ("Invalid NAL unit size"). Encoding
+    also allows an exact start (`trim_start`) and `duration` instead of
+    keyframe-bound cuts. `copy=True` restores the lossless join."""
     if not segments:
         return None
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     listfile = dest.with_suffix(".txt")
     listfile.write_text("".join(f"file '{s.path.resolve().as_posix()}'\n" for s in segments), encoding="utf-8")
-    cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-f", "concat", "-safe", "0",
-           "-i", str(listfile), "-c", "copy", "-bsf:a", "aac_adtstoasc", "-movflags", "+faststart", str(dest)]
+    head = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-fflags", "+genpts+discardcorrupt",
+            "-err_detect", "ignore_err", "-f", "concat", "-safe", "0", "-i", str(listfile)]
+    tail = ["-movflags", "+faststart", str(dest)]
+    trim = (["-ss", f"{trim_start:.3f}"] if trim_start > 0 else []) + (["-t", f"{duration:.3f}"] if duration else [])
     try:
-        subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
+        if copy:
+            cmd = head + trim + ["-c", "copy", "-bsf:a", "aac_adtstoasc"] + tail
+            subprocess.run(cmd, check=True, timeout=timeout, capture_output=True)
+            ok = True
+        else:
+            from .media import run_encode
+
+            def build(venc: list[str]) -> list[str]:
+                return head + trim + venc + ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-ar", "48000"] + tail
+
+            ok = run_encode(build, timeout, "clip cut")
     except subprocess.CalledProcessError as e:
         log.error("ffmpeg concat failed: %s", e.stderr.decode(errors="replace")[-800:])
-        return None
+        ok = False
     except subprocess.TimeoutExpired:
         log.error("ffmpeg concat timed out")
-        return None
+        ok = False
     finally:
         try:
             listfile.unlink()
         except OSError:
             pass
-    return dest if dest.exists() and dest.stat().st_size > 0 else None
+    return dest if ok and dest.exists() and dest.stat().st_size > 0 else None
 
 
 class Recorder:
@@ -206,4 +223,6 @@ class Recorder:
         covered = chosen[-1].end - chosen[0].start
         if covered < pre * 0.5:
             log.warning("[%s] only %.0fs buffered (wanted %.0fs); clipping what we have", self.login, covered, pre)
-        return await asyncio.to_thread(concat_segments, chosen, dest)
+        # exact window inside the joined segments
+        trim_start = max(0.0, (trigger_ts - pre) - chosen[0].start)
+        return await asyncio.to_thread(concat_segments, chosen, dest, 300.0, trim_start, pre + post)
