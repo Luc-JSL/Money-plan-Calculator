@@ -10,7 +10,8 @@ from .auth import AuthError, TokenManager, TokenStore
 from .config import Config
 from .detector import SpikeDetector, Trigger
 from .irc import ChatPool
-from . import captions, post, retention
+from . import captions, retention
+from .post import Poster
 from .media import download_clip, render_vertical, safe_name
 from .recorder import Recorder
 from .notify import discord
@@ -28,6 +29,7 @@ class Runner:
             self.helix = Helix(cfg.client_id, TokenManager(cfg.client_id, TokenStore(cfg.token_path),
                                                            cfg.client_secret))
         self.recorders: dict[str, Recorder] = {}
+        self.poster = Poster(cfg) if cfg.auto_post else None
         self.detector = SpikeDetector(cfg.detector)
         self.pool = ChatPool()
         self.log = ClipLog(cfg.log_path)
@@ -204,11 +206,12 @@ class Runner:
             if vpath:
                 record.vertical_file = str(vpath)
                 log.info("rendered vertical %s%s", vpath, " with captions" if ass else "")
-                if self.cfg.auto_post:
-                    desc = self.cfg.post_template.format(
-                        display_name=stream.display_name or stream.login, login=stream.login,
-                        game=stream.game_name, title=stream.title, url=record.url)
-                    record.posted = post.post_tiktok(vpath, desc, self.cfg.tiktok_cookies)
+                if self.poster is not None:
+                    text, title = self.cfg.render_post_text(stream.display_name, stream.login, stream.game_name,
+                                                            stream.title, record.url)
+                    results = self.poster.post_all(vpath, text, title)
+                    record.posted = any(r.ok for r in results)
+                    record.post_urls = [r.url for r in results if r.ok and r.url]
         retention.enforce(self.cfg.clips_dir, self.cfg.max_clips_gb, self.cfg.max_clips_keep)
         self.log.append(record)
         if self.cfg.discord_webhook:

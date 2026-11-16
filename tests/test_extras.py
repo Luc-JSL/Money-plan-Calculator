@@ -168,7 +168,7 @@ class PostTests(unittest.TestCase):
 
     def test_config_validation_for_auto_post(self):
         from clipbot.config import Config
-        msgs = "\n".join(Config(client_id="x", auto_post=True, tiktok_cookies="", vertical=False).validate())
+        msgs = "\n".join(Config(client_id="x", auto_post=["tiktok"], tiktok_cookies="", vertical=False).validate())
         self.assertIn("TIKTOK_COOKIES", msgs)
         self.assertIn("VERTICAL", msgs)
 

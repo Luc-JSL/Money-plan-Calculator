@@ -17,7 +17,9 @@ first if anything below is unclear.
 - `media.py`: `download_clip()` via yt-dlp, `render_vertical(ass_path=...)` via ffmpeg.
 - `captions.py`: faster-whisper words -> `group_words()` -> `write_ass()`; injectable transcriber.
 - `retention.py`: `enforce(root, max_gb, max_clips)` prunes oldest clip groups.
-- `post.py`: optional TikTok upload through the `tiktok-uploader` package (opt-in, risky).
+- `post.py`: `Poster` posts vertical clips to platforms in `AUTO_POST` with a per-day cap and a
+  `PostState` file; `post_pending()` drains the queue. TikTok via `tiktok-uploader` (risky).
+- `youtube.py`: official YouTube Data API: loopback OAuth (`youtube-auth`) + resumable upload.
 - `recorder.py`: local mode. `Recorder` supervises `streamlink --stdout | ffmpeg -f segment` into a
   rolling buffer of 2s TS files; `cut()` concatenates the last N seconds into an MP4.
 - `runner.py`: `Runner` ties discovery, chat and clipping together. Local mode:
@@ -53,7 +55,8 @@ helper `chatter()`).
 - The recorder test spins up a local HLS stream; run `tests.test_recorder` after touching
   `recorder.py`.
 - Network calls go through `clipbot/http.py:request` so tests can stub them; keep it that way.
-- Never turn on `AUTO_POST` yourself; it is the user's call and carries a TikTok ban risk.
+- Never turn on `AUTO_POST` yourself; it is the user's call. YouTube is safe (official API);
+  TikTok carries a ban risk. Keep `MAX_POSTS_PER_DAY` small.
 - Related repos and what was borrowed are listed in README-clipbot.md section 6.
 - Never commit `.env`, `data/` or clip files.
 - Keep the test suite green; CI runs it on every push.

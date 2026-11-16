@@ -7,8 +7,11 @@ import logging
 import os
 import signal
 import sys
+from pathlib import Path
 
 from . import __version__, captions, post
+from .post import Poster
+from .storage import ClipLog
 from .auth import AuthError, TokenManager, TokenStore, validate
 from .config import Config, load_dotenv
 from .media import have_ffmpeg, have_ytdlp
@@ -56,10 +59,14 @@ def cmd_doctor(cfg: Config) -> int:
     if cfg.captions:
         print(f"[{'OK ' if captions.available() else '-- '}] faster-whisper for captions"
               f"{'' if captions.available() else ' - optional: pip install faster-whisper'}")
-    if cfg.auto_post:
-        check("tiktok-uploader installed", post.available(), "pip install tiktok-uploader && playwright install chromium")
+    if "tiktok" in cfg.auto_post:
+        check("tiktok-uploader installed", post.tiktok_available(), "pip install tiktok-uploader && playwright install chromium")
         check("TIKTOK_COOKIES file exists", bool(cfg.tiktok_cookies) and os.path.isfile(cfg.tiktok_cookies),
               "export cookies.txt from tiktok.com (see README)")
+    if "youtube" in cfg.auto_post:
+        check("YouTube connected", (cfg.data_dir / "youtube_tokens.json").is_file(), "run: python -m clipbot youtube-auth")
+    if cfg.auto_post:
+        print(f"      auto-post: {', '.join(cfg.auto_post)} (max {cfg.max_posts_per_day}/day each)")
     tokens = TokenStore(cfg.token_path).load()
     if cfg.local_mode and tokens is None:
         print("[-- ] no Twitch token - fine in local mode; add one (`auth`) to auto-discover top streams")
@@ -140,9 +147,43 @@ def cmd_run(cfg: Config) -> int:
     return 0
 
 
-def cmd_post(cfg: Config, video: str, description: str) -> int:
-    ok = post.post_tiktok(video, description, cfg.tiktok_cookies)
-    print("posted" if ok else "post failed (see log)")
+def cmd_youtube_auth(cfg: Config) -> int:
+    from .youtube import GoogleTokenStore, YouTubeError, interactive_login
+    if not (cfg.youtube_client_id and cfg.youtube_client_secret):
+        print("Set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in .env first (see README section 5).", file=sys.stderr)
+        return 2
+    try:
+        interactive_login(cfg.youtube_client_id, cfg.youtube_client_secret,
+                          GoogleTokenStore(cfg.data_dir / "youtube_tokens.json"))
+    except YouTubeError as e:
+        print(f"YouTube login failed: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_post(cfg: Config, video: str | None, description: str, to: list[str], pending: bool, limit: int) -> int:
+    platforms = to or cfg.auto_post
+    if not platforms:
+        print("Say where to post: --to youtube, --to tiktok (or set AUTO_POST in .env)", file=sys.stderr)
+        return 2
+    cfg.auto_post = platforms
+    poster = Poster(cfg)
+    if pending:
+        results = poster.post_pending(ClipLog(cfg.log_path).read(), limit=limit)
+        for r in results:
+            print(f"{r.platform:<8} {'ok ' if r.ok else 'FAIL'} {r.url}")
+        if not results:
+            print("nothing to post (queue empty or daily cap reached)")
+        return 0 if all(r.ok for r in results) else 1
+    if not video:
+        print("give a video file or --pending", file=sys.stderr)
+        return 2
+    ok = True
+    for p in platforms:
+        r = poster.post(Path(video), p, description or cfg.post_template.format(
+            display_name="", login="", game=cfg.game_name, title="", url=""), force=True)
+        print(f"{p:<8} {'ok ' if r.ok else ('skip (' + r.skipped + ')' if r.skipped else 'FAIL')} {r.url}")
+        ok &= r.ok or r.skipped == "already"
     return 0 if ok else 1
 
 
@@ -168,9 +209,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("channel")
     p = sub.add_parser("history", help="list clips made so far")
     p.add_argument("-n", type=int, default=50)
-    p = sub.add_parser("post", help="post a vertical clip to TikTok (needs tiktok-uploader + TIKTOK_COOKIES)")
-    p.add_argument("video")
+    sub.add_parser("youtube-auth", help="connect a YouTube channel for Shorts uploads")
+    p = sub.add_parser("post", help="post a vertical clip (or the pending queue) to YouTube Shorts / TikTok")
+    p.add_argument("video", nargs="?")
     p.add_argument("-d", "--description", default="")
+    p.add_argument("--to", action="append", choices=["youtube", "tiktok"], default=[])
+    p.add_argument("--pending", action="store_true", help="post the best unposted clips up to the daily cap")
+    p.add_argument("-n", "--limit", type=int, default=0)
     args = ap.parse_args(argv)
 
     load_dotenv(args.env)
@@ -187,7 +232,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "history":
         return cmd_history(cfg, args.n)
     if args.cmd == "post":
-        return cmd_post(cfg, args.video, args.description)
+        return cmd_post(cfg, args.video, args.description, args.to, args.pending, args.limit)
+    if args.cmd == "youtube-auth":
+        return cmd_youtube_auth(cfg)
     return cmd_run(cfg)
 
 

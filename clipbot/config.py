@@ -48,6 +48,16 @@ def _env_bool(name: str, default: bool) -> bool:
     return v in {"1", "true", "yes", "on"}
 
 
+def _parse_platforms(v: str) -> list[str]:
+    """AUTO_POST accepts 'youtube,tiktok', 'true' (= tiktok, legacy) or empty/false."""
+    v = v.strip().lower()
+    if not v or v in {"0", "false", "no", "off"}:
+        return []
+    if v in {"1", "true", "yes", "on"}:
+        return ["tiktok"]
+    return [x.strip() for x in v.split(",") if x.strip()]
+
+
 def _env_list(name: str) -> list[str]:
     v = _env(name)
     return [x.strip().lstrip("#").lower() for x in v.split(",") if x.strip()]
@@ -111,9 +121,15 @@ class Config:
     whisper_model: str = "small"     # faster-whisper model size: tiny/base/small/medium
     max_clips_gb: float = 5.0        # prune oldest clips past this size (0 = off)
     max_clips_keep: int = 300        # or past this many clips (0 = off)
-    auto_post: bool = False          # post every vertical clip to TikTok (opt-in, see README)
+    auto_post: list[str] = field(default_factory=list)  # platforms: "youtube", "tiktok" (opt-in, see README)
+    max_posts_per_day: int = 6       # per platform; YouTube quota allows ~6, TikTok should look human
     tiktok_cookies: str = ""         # path to a Netscape cookies.txt exported from tiktok.com
     post_template: str = "{display_name} on Twitch #twitch #clips #gta6 #gtavi"
+    youtube_client_id: str = ""
+    youtube_client_secret: str = ""
+    youtube_privacy: str = "public"  # public | unlisted | private
+    youtube_title_template: str = "{display_name} {game} moment #shorts"
+    youtube_tags: list[str] = field(default_factory=lambda: ["twitch", "clips", "gta6", "gtavi", "shorts"])
     data_dir: Path = Path("data")
     discord_webhook: str = ""
     max_clips_per_hour: int = 30     # global safety valve
@@ -144,9 +160,15 @@ class Config:
             whisper_model=_env("WHISPER_MODEL", d.whisper_model),
             max_clips_gb=_env_float("MAX_CLIPS_GB", d.max_clips_gb),
             max_clips_keep=_env_int("MAX_CLIPS_KEEP", d.max_clips_keep),
-            auto_post=_env_bool("AUTO_POST", d.auto_post),
+            auto_post=_parse_platforms(_env("AUTO_POST")),
+            max_posts_per_day=_env_int("MAX_POSTS_PER_DAY", d.max_posts_per_day),
             tiktok_cookies=_env("TIKTOK_COOKIES"),
             post_template=_env("POST_TEMPLATE", d.post_template),
+            youtube_client_id=_env("YOUTUBE_CLIENT_ID"),
+            youtube_client_secret=_env("YOUTUBE_CLIENT_SECRET"),
+            youtube_privacy=_env("YOUTUBE_PRIVACY", d.youtube_privacy).lower(),
+            youtube_title_template=_env("YOUTUBE_TITLE_TEMPLATE", d.youtube_title_template),
+            youtube_tags=_env_list("YOUTUBE_TAGS") or d.youtube_tags,
             data_dir=Path(_env("DATA_DIR", str(d.data_dir))),
             discord_webhook=_env("DISCORD_WEBHOOK"),
             max_clips_per_hour=_env_int("MAX_CLIPS_PER_HOUR", d.max_clips_per_hour),
@@ -173,6 +195,11 @@ class Config:
     def has_twitch_auth(self) -> bool:
         return bool(self.client_id) and self.token_path.is_file()
 
+    def render_post_text(self, display_name: str, login: str, game: str, title: str, url: str) -> tuple[str, str]:
+        """(caption/description, youtube title) from the templates."""
+        vals = dict(display_name=display_name or login, login=login, game=game, title=title, url=url)
+        return self.post_template.format(**vals), self.youtube_title_template.format(**vals)
+
     @property
     def log_path(self) -> Path:
         return self.data_dir / "clips.jsonl"
@@ -195,8 +222,17 @@ class Config:
             problems.append("CLIP_PRE_SECONDS must be > 0")
         if self.detector.short_window >= self.detector.long_window:
             problems.append("DET_SHORT_WINDOW must be smaller than DET_LONG_WINDOW")
-        if self.auto_post and not self.tiktok_cookies:
-            problems.append("AUTO_POST=true needs TIKTOK_COOKIES (path to cookies.txt)")
-        if self.auto_post and not (self.download and self.vertical):
-            problems.append("AUTO_POST=true needs DOWNLOAD=true and VERTICAL=true")
+        for p in self.auto_post:
+            if p not in ("tiktok", "youtube"):
+                problems.append(f"AUTO_POST: unknown platform {p!r} (use youtube, tiktok)")
+        if "tiktok" in self.auto_post and not self.tiktok_cookies:
+            problems.append("AUTO_POST=tiktok needs TIKTOK_COOKIES (path to cookies.txt)")
+        if "youtube" in self.auto_post and not (self.youtube_client_id and self.youtube_client_secret):
+            problems.append("AUTO_POST=youtube needs YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET")
+        if self.auto_post and not self.vertical:
+            problems.append("AUTO_POST needs VERTICAL=true")
+        if self.auto_post and not self.local_mode and not self.download:
+            problems.append("AUTO_POST in twitch mode needs DOWNLOAD=true")
+        if self.youtube_privacy not in ("public", "unlisted", "private"):
+            problems.append("YOUTUBE_PRIVACY must be public, unlisted or private")
         return problems

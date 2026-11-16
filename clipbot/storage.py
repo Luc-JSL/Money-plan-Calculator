@@ -30,6 +30,7 @@ class ClipRecord:
     stream_title: str = ""
     viewers: int = 0
     posted: bool = False
+    post_urls: list[str] = field(default_factory=list)
 
 
 class ClipLog:

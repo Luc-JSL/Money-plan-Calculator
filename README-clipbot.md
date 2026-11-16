@@ -86,6 +86,8 @@ On a Linux VPS without Docker, `clipbot.service` is a ready systemd unit.
 | `python -m clipbot streams` | Show which live streams would be monitored right now |
 | `python -m clipbot clip <login>` | Create a Twitch clip of that channel immediately (needs the Twitch app) |
 | `python -m clipbot history` | List the clips made so far |
+| `python -m clipbot youtube-auth` | Connect a YouTube channel (one-time) |
+| `python -m clipbot post --pending` | Post the best unposted clips, up to today's cap |
 | `python -m clipbot doctor` | Verify config, token, ffmpeg and yt-dlp |
 
 Logs go to stdout and `data/clipbot.log`. Clips land in `data/clips/<channel>/` as
@@ -155,26 +157,42 @@ faster-whisper the vertical render simply has no captions.
 **Disk budget.** `MAX_CLIPS_GB` / `MAX_CLIPS_KEEP` prune the oldest clips (raw, vertical
 and captions together) after every new clip, so the bot can run for weeks unattended.
 
-**Posting.** The default workflow is manual: the Discord webhook pings you, you open
-`...-vertical.mp4`, add a hook line in CapCut or TikTok's editor and post. The `score`
-and `sample` chat lines in `data/clips.jsonl` tell you which ones to post first.
+**Posting.** Off by default. The Discord webhook pings you, you open `...-vertical.mp4`,
+add a hook line and post. The `score` in `data/clips.jsonl` tells you which ones first.
 
-Automatic TikTok posting exists but is **off by default** (`AUTO_POST=false`). It uses the
-MIT-licensed [tiktok-uploader](https://github.com/wkaisertexas/tiktok-uploader) package,
-which drives a headless browser with cookies exported from tiktok.com:
+**Auto-posting** (`AUTO_POST=youtube,tiktok`). Every vertical clip is posted as it is made,
+up to `MAX_POSTS_PER_DAY` per platform (default 6). Clips beyond the cap wait in a queue;
+`python -m clipbot post --pending` posts the highest-scoring unposted ones, so you can run
+it the next morning or from a daily cron. Nothing is ever posted twice
+(`data/post_state.json` remembers).
+
+*YouTube Shorts* uses the official YouTube Data API, so it is safe for your channel:
+
+1. console.cloud.google.com: create a project, enable **YouTube Data API v3**.
+2. OAuth consent screen: External, add your own Google account as a test user.
+3. Credentials: create an **OAuth client ID** of type **Desktop app**. Copy the client id
+   and secret into `YOUTUBE_CLIENT_ID` / `YOUTUBE_CLIENT_SECRET`.
+4. `python -m clipbot youtube-auth` opens Google's consent page; approve once.
+
+A new project's quota allows about 6 uploads a day, which is why the cap defaults to 6.
+Clips under 60 seconds in 9:16 are shown as Shorts automatically; the title comes from
+`YOUTUBE_TITLE_TEMPLATE`.
+
+*TikTok* has no public posting API for normal accounts. The bot can use the MIT-licensed
+[tiktok-uploader](https://github.com/wkaisertexas/tiktok-uploader) package, which drives a
+headless browser with cookies exported from tiktok.com:
 
 ```bash
 pip install tiktok-uploader && playwright install chromium
-# export cookies.txt from tiktok.com with a "Get cookies.txt" browser extension
-python -m clipbot post data/clips/<channel>/<file>-vertical.mp4 -d "caption #gta6"
+# export cookies.txt from tiktok.com with a "Get cookies.txt" browser extension, then:
+TIKTOK_COOKIES=/path/cookies.txt
 ```
 
-Set `AUTO_POST=true` and `TIKTOK_COOKIES=/path/cookies.txt` to post every clip with
-`POST_TEMPLATE`. Know the risks: this is against TikTok's terms, accounts get
-rate-limited or banned, and TikTok changes its upload page often so the package can
-break. Use a dedicated clips account and keep volume human (a handful a day).
-YouTube Shorts posting is not built in; [clipmint](https://github.com/kleZ799/clipmint)
-has a working YouTube upload if you want one.
+Know the risks: this is against TikTok's terms, accounts get rate-limited or banned, and
+TikTok changes its upload page often so the package can break. Use a dedicated clips
+account, keep `MAX_POSTS_PER_DAY` low, and check the first few posts by hand.
+
+Manual posting of one file: `python -m clipbot post data/clips/xqc/<file>-vertical.mp4 --to youtube -d "caption"`.
 
 ## 6. Related open-source projects
 
