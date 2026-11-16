@@ -9,7 +9,7 @@ import signal
 import sys
 from pathlib import Path
 
-from . import __version__, captions, post
+from . import __version__, captions, layout, post
 from .post import Poster
 from .storage import ClipLog
 from .auth import AuthError, TokenManager, TokenStore, validate
@@ -56,6 +56,16 @@ def cmd_doctor(cfg: Config) -> int:
     else:
         check("TWITCH_CLIENT_ID set", bool(cfg.client_id), "create an app at dev.twitch.tv/console/apps")
         check("yt-dlp available", have_ytdlp(), "pip install yt-dlp (needed for DOWNLOAD=1)")
+    try:
+        import cv2  # type: ignore  # noqa: F401
+        has_cv = True
+    except ImportError:
+        has_cv = False
+    model_ok = layout.default_model_path(cfg.data_dir).is_file()
+    if cfg.layout != "blurred" and not cfg.facecam_box:
+        print(f"[{'OK ' if has_cv and model_ok else '-- '}] facecam detection for the {cfg.layout} layout"
+              + ("" if has_cv and model_ok else
+                 " - optional: pip install opencv-python-headless && python -m clipbot setup-face"))
     if cfg.captions:
         print(f"[{'OK ' if captions.available() else '-- '}] faster-whisper for captions"
               f"{'' if captions.available() else ' - optional: pip install faster-whisper'}")
@@ -147,6 +157,38 @@ def cmd_run(cfg: Config) -> int:
     return 0
 
 
+def cmd_setup_face(cfg: Config) -> int:
+    dest = layout.default_model_path(cfg.data_dir)
+    if dest.is_file():
+        print(f"face model already at {dest}")
+        return 0
+    print(f"downloading YuNet face model to {dest} ...")
+    try:
+        layout.download_model(dest)
+    except Exception as e:  # noqa: BLE001
+        print(f"download failed: {e}\nGet it manually from {layout.YUNET_URL} and save it as {dest}", file=sys.stderr)
+        return 1
+    print("done")
+    return 0
+
+
+def cmd_render(cfg: Config, video: str, out: str | None) -> int:
+    """Re-render one clip with the current LAYOUT / FACECAM_* / CAPTIONS settings."""
+    from .media import render_vertical
+    src = Path(video)
+    if not src.is_file():
+        print(f"not found: {src}", file=sys.stderr)
+        return 1
+    box = layout.parse_box(cfg.facecam_box) if cfg.facecam_box else \
+        layout.find_facecam(src, layout.yunet_detector(layout.default_model_path(cfg.data_dir)))
+    graph, used = layout.choose_graph(cfg.layout, box, cfg.facecam_share)
+    ass = captions.make_captions(src, src.with_suffix(".ass"), model_size=cfg.whisper_model) if cfg.captions else None
+    dest = Path(out) if out else src.with_name(src.stem.replace("-vertical", "") + "-vertical.mp4")
+    result = render_vertical(src, dest, ass_path=ass, graph=graph)
+    print(f"{used} layout, facecam={box}, captions={'yes' if ass else 'no'} -> {result or 'FAILED'}")
+    return 0 if result else 1
+
+
 def cmd_youtube_auth(cfg: Config) -> int:
     from .youtube import GoogleTokenStore, YouTubeError, interactive_login
     if not (cfg.youtube_client_id and cfg.youtube_client_secret):
@@ -210,6 +252,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("history", help="list clips made so far")
     p.add_argument("-n", type=int, default=50)
     sub.add_parser("youtube-auth", help="connect a YouTube channel for Shorts uploads")
+    sub.add_parser("setup-face", help="download the face model used to find the streamer's webcam")
+    p = sub.add_parser("render", help="re-render a clip as vertical with the current layout/caption settings")
+    p.add_argument("video")
+    p.add_argument("-o", "--out")
     p = sub.add_parser("post", help="post a vertical clip (or the pending queue) to YouTube Shorts / TikTok")
     p.add_argument("video", nargs="?")
     p.add_argument("-d", "--description", default="")
@@ -235,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_post(cfg, args.video, args.description, args.to, args.pending, args.limit)
     if args.cmd == "youtube-auth":
         return cmd_youtube_auth(cfg)
+    if args.cmd == "setup-face":
+        return cmd_setup_face(cfg)
+    if args.cmd == "render":
+        return cmd_render(cfg, args.video, args.out)
     return cmd_run(cfg)
 
 

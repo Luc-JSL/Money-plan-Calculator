@@ -29,6 +29,7 @@ class ClipRecord:
     duration: float = 0.0
     stream_title: str = ""
     viewers: int = 0
+    layout: str = ""
     posted: bool = False
     post_urls: list[str] = field(default_factory=list)
 

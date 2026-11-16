@@ -1,3 +1,4 @@
 # Optional features. Install what you want:
-faster-whisper>=1.0      # CAPTIONS=true: burned-in auto captions (CPU is fine for 30s clips)
-tiktok-uploader>=1.2     # AUTO_POST=true / `clipbot post`: then run `playwright install chromium`
+faster-whisper>=1.0            # CAPTIONS=true: burned-in auto captions (CPU is fine for 30s clips)
+opencv-python-headless>=4.8    # LAYOUT=auto/split/stack: find the streamer's webcam (then: clipbot setup-face)
+tiktok-uploader>=1.2           # AUTO_POST=tiktok / `clipbot post`: then run `playwright install chromium`

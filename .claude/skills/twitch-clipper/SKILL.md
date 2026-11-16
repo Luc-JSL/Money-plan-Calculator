@@ -15,6 +15,8 @@ first if anything below is unclear.
 - `irc.py`: anonymous TMI chat reader; `ChatPool.set_channels()` joins/parts; `parse_line()`.
 - `detector.py`: `SpikeDetector.observe()` returns a `Trigger`; pure logic with injectable clock.
 - `media.py`: `download_clip()` via yt-dlp, `render_vertical(ass_path=...)` via ffmpeg.
+- `layout.py`: finds the streamer's webcam (YuNet + geometry) and builds the split / stack /
+  blurred ffmpeg graphs; `choose_graph()` decides. `clipbot render <clip>` re-renders one clip.
 - `captions.py`: faster-whisper words -> `group_words()` -> `write_ass()`; injectable transcriber.
 - `retention.py`: `enforce(root, max_gb, max_clips)` prunes oldest clip groups.
 - `post.py`: `Poster` posts vertical clips to platforms in `AUTO_POST` with a per-day cap and a
@@ -48,6 +50,11 @@ When a user says "too many clips" raise `DET_SPIKE_MULTIPLIER` / `DET_MIN_HYPE_F
 Always run `python -m unittest discover -s tests` after changing `detector.py` and add a
 test case that reproduces the chat pattern in question (see `tests/test_detector.py`,
 helper `chatter()`).
+
+## Editing
+For hand edits (hook text, tighter cuts) point the user to Clips Kitty (ColinGPT9/clips-studio,
+AGPL: use it as a tool, never copy its code here). Its Gaming/Reaction mode matches our split
+layout. "Facecam band is wrong" -> `FACECAM_BOX=x,y,w,h` then `clipbot render`.
 
 ## Rules
 - Video comes from streamlink (public HLS) or the Helix Create Clip API; chat from anonymous

@@ -76,15 +76,18 @@ def vertical_filter(width: int = 1080, height: int = 1920) -> str:
     )
 
 
-def render_vertical(src: Path, dest: Path, timeout: float = 300.0, ass_path: Path | None = None) -> Path | None:
+def render_vertical(src: Path, dest: Path, timeout: float = 300.0, ass_path: Path | None = None,
+                    graph: str | None = None) -> Path | None:
     """Produce a 1080x1920 version of `src` for TikTok / Shorts / Reels.
+    `graph` is the ffmpeg filter graph (default: blurred layout; see layout.py).
     If `ass_path` is given, those subtitles are burned in (libass)."""
     if not have_ffmpeg():
         log.warning("ffmpeg not found; skipping vertical render")
         return None
     src, dest = Path(src).resolve(), Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    vf = vertical_filter()
+    base = graph or vertical_filter()
+    vf = base
     cwd = None
     if ass_path is not None:
         # The ass filter parses ':' and '\' in its argument, so run ffmpeg inside the
@@ -94,7 +97,7 @@ def render_vertical(src: Path, dest: Path, timeout: float = 300.0, ass_path: Pat
         vf = vf + f",ass={safe_name(ass_path.name)}"
         if safe_name(ass_path.name) != ass_path.name:
             log.warning("caption file name %s is not ffmpeg-safe; skipping captions", ass_path.name)
-            vf, cwd = vertical_filter(), None
+            vf, cwd = base, None
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(src),
         "-filter_complex", vf,

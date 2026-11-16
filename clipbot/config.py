@@ -117,6 +117,9 @@ class Config:
     has_delay: bool = False          # twitch mode: Twitch "has_delay" when creating clips
     download: bool = True
     vertical: bool = True
+    layout: str = "auto"             # auto | split | stack | blurred (see layout.py)
+    facecam_share: float = 0.38      # split layout: fraction of the height given to the webcam
+    facecam_box: str = ""            # manual "x,y,w,h" of the webcam in the source frame (skips detection)
     captions: bool = True            # burn auto-captions into the vertical clip (needs faster-whisper)
     whisper_model: str = "small"     # faster-whisper model size: tiny/base/small/medium
     max_clips_gb: float = 5.0        # prune oldest clips past this size (0 = off)
@@ -156,6 +159,9 @@ class Config:
             has_delay=_env_bool("HAS_DELAY", d.has_delay),
             download=_env_bool("DOWNLOAD", d.download),
             vertical=_env_bool("VERTICAL", d.vertical),
+            layout=_env("LAYOUT", d.layout).lower(),
+            facecam_share=_env_float("FACECAM_SHARE", d.facecam_share),
+            facecam_box=_env("FACECAM_BOX"),
             captions=_env_bool("CAPTIONS", d.captions),
             whisper_model=_env("WHISPER_MODEL", d.whisper_model),
             max_clips_gb=_env_float("MAX_CLIPS_GB", d.max_clips_gb),
@@ -233,6 +239,10 @@ class Config:
             problems.append("AUTO_POST needs VERTICAL=true")
         if self.auto_post and not self.local_mode and not self.download:
             problems.append("AUTO_POST in twitch mode needs DOWNLOAD=true")
+        if self.layout not in ("auto", "split", "stack", "blurred"):
+            problems.append("LAYOUT must be auto, split, stack or blurred")
+        if self.facecam_box and not __import__("clipbot.layout", fromlist=["parse_box"]).parse_box(self.facecam_box):
+            problems.append("FACECAM_BOX must be x,y,w,h in pixels")
         if self.youtube_privacy not in ("public", "unlisted", "private"):
             problems.append("YOUTUBE_PRIVACY must be public, unlisted or private")
         return problems

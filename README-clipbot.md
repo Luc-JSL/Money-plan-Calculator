@@ -87,6 +87,8 @@ On a Linux VPS without Docker, `clipbot.service` is a ready systemd unit.
 | `python -m clipbot clip <login>` | Create a Twitch clip of that channel immediately (needs the Twitch app) |
 | `python -m clipbot history` | List the clips made so far |
 | `python -m clipbot youtube-auth` | Connect a YouTube channel (one-time) |
+| `python -m clipbot setup-face` | Download the face model for webcam detection (one-time) |
+| `python -m clipbot render <clip.mp4>` | Re-render a clip with the current layout and caption settings |
 | `python -m clipbot post --pending` | Post the best unposted clips, up to today's cap |
 | `python -m clipbot doctor` | Verify config, token, ffmpeg and yt-dlp |
 
@@ -149,6 +151,24 @@ dozens of streams at once.
 
 ## 5. Captions, disk budget and posting
 
+**Layout: facecam on top, game below.** Gaming clips on TikTok and Shorts use a split
+layout, not a letterboxed 16:9 frame. With `LAYOUT=auto` (default) the bot looks for the
+streamer's webcam in the clip (a small face pinned to a corner that does not move) and
+renders the webcam as a band on top with the game zoomed to fill the rest. `LAYOUT=stack`
+keeps the whole game frame under the webcam instead; `LAYOUT=blurred` is the plain
+letterbox. Detection needs two optional pieces:
+
+```bash
+pip install opencv-python-headless
+python -m clipbot setup-face        # downloads OpenCV's 230 KB YuNet face model once
+```
+
+Without them, or when no webcam is found (VTubers, no cam, cam hidden by the game), the
+clip falls back to the blurred layout. If detection picks the wrong spot for a streamer,
+set `FACECAM_BOX=x,y,w,h` (the webcam rectangle in 1920x1080 source pixels) and the bot
+uses that. `python -m clipbot render data/clips/<channel>/<file>.mp4` re-renders one clip
+with the current settings so you can try layouts without waiting for a new trigger.
+
 **Captions.** With `pip install faster-whisper` and `CAPTIONS=true` (default), each clip is
 transcribed on the CPU (about 10-20s for a 30s clip with the `small` model) and the words
 are burned into the vertical video as big centred captions, four words at a time. Without
@@ -194,7 +214,31 @@ account, keep `MAX_POSTS_PER_DAY` low, and check the first few posts by hand.
 
 Manual posting of one file: `python -m clipbot post data/clips/xqc/<file>-vertical.mp4 --to youtube -d "caption"`.
 
-## 6. Related open-source projects
+## 6. Editing the clips by hand: Clips Kitty
+
+The bot's output is a scout's output: right moment, right layout, captions. The clips
+that go viral also get a hook line in the first second, tighter cuts and a title. For that
+the best open-source tool we found is **[Clips Kitty](https://github.com/ColinGPT9/clips-studio)**
+(ColinGPT9/clips-studio, AGPL, free, Windows app on the Microsoft Store, also Docker):
+
+- built for Twitch and Kick streams: a **Gaming / Reaction** mode with eleven webcam + game
+  layouts (split, basecam, small facecam, circle cam, duo...), the streamer kept clear of
+  TikTok's buttons;
+- word-synced captions in editable styles, hook text, trims, mutes, speed, music, a
+  non-destructive editor and an "edit by chat" box (*make it 5 seconds longer*);
+- takes local files, Twitch VODs or Kick VODs, and publishes to YouTube, TikTok and
+  Instagram on a schedule;
+- runs on your own PC with a local model; no per-clip fees.
+
+Workflow: let clipbot collect clips in `data/clips/`, open the best ones (highest `score`
+in `clips.jsonl`) in Clips Kitty, add the hook and post. Install:
+`winget install ColinGPT9.ClipsKitty` or the Microsoft Store link in its README.
+
+Also worth knowing: [NakhulGithesh/gta6-clipper](https://github.com/NakhulGithesh/gta6-clipper)
+(MIT, macOS) turns whole GTA 6 reaction VODs into facecam-on-top clips after the stream;
+its webcam-finding geometry is what `clipbot/layout.py` follows.
+
+## 7. Related open-source projects
 
 Reviewed while building this (none are required):
 
@@ -209,7 +253,7 @@ Reviewed while building this (none are required):
 | [VadlapatiKarthik/autoclipper](https://github.com/VadlapatiKarthik/autoclipper) | Cloud pipeline: Twitch/Kick/YouTube -> subtitles -> YouTube upload | Heavy (Celery, Redis, GPT); reference only |
 | [ZiedYT/automatic-twitch-clipper](https://github.com/ZiedYT/automatic-twitch-clipper) | Oldest chat-based clipper | Uses scraped browser tokens; avoided |
 
-## 7. Tests
+## 8. Tests
 
 ```bash
 python -m unittest discover -s tests -v
@@ -236,5 +280,7 @@ pulled by streamlink into the rolling buffer and cut into a clip.
 | Clips not downloading | `pip install -U yt-dlp` (Twitch changes its CDN often) |
 | No vertical files | Install ffmpeg or set `VERTICAL=false` |
 | No captions on clips | `pip install faster-whisper`; first run downloads the model |
+| Clips are letterboxed, no facecam band | `pip install opencv-python-headless && python -m clipbot setup-face`, or set `FACECAM_BOX` |
+| Facecam band shows the wrong area | Set `FACECAM_BOX=x,y,w,h` for that streamer and re-run `clipbot render` |
 | Clips fire on raids / emote waves | Raise `DET_SUSTAIN` to 5; raids are already suppressed |
 | Too many / too few clips | See tuning tips above; changes in `.env` apply on restart |

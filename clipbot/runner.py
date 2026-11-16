@@ -10,7 +10,7 @@ from .auth import AuthError, TokenManager, TokenStore
 from .config import Config
 from .detector import SpikeDetector, Trigger
 from .irc import ChatPool
-from . import captions, retention
+from . import captions, layout, retention
 from .post import Poster
 from .media import download_clip, render_vertical, safe_name
 from .recorder import Recorder
@@ -30,6 +30,8 @@ class Runner:
                                                            cfg.client_secret))
         self.recorders: dict[str, Recorder] = {}
         self.poster = Poster(cfg) if cfg.auto_post else None
+        self._face_detector = None
+        self._face_detector_loaded = False
         self.detector = SpikeDetector(cfg.detector)
         self.pool = ChatPool()
         self.log = ClipLog(cfg.log_path)
@@ -196,16 +198,33 @@ class Runner:
         await asyncio.to_thread(self._finish, record, path, stream, trig)
         return record
 
+    def _facecam_box(self, path: Path) -> layout.Box | None:
+        if self.cfg.facecam_box:
+            return layout.parse_box(self.cfg.facecam_box)
+        if self.cfg.layout == "blurred":
+            return None
+        if not self._face_detector_loaded:
+            self._face_detector_loaded = True
+            model = layout.default_model_path(self.cfg.data_dir)
+            self._face_detector = layout.yunet_detector(model)
+            if self._face_detector is None:
+                log.info("facecam detection off (needs opencv-python-headless + `python -m clipbot setup-face`); "
+                         "clips use the blurred layout")
+        return layout.find_facecam(path, self._face_detector)
+
     def _finish(self, record: ClipRecord, path: Path, stream: Stream, trig: Trigger) -> None:
-        """Captions, vertical render, optional posting, retention, log, notify."""
+        """Captions, layout, vertical render, optional posting, retention, log, notify."""
         if self.cfg.vertical:
             ass = None
             if self.cfg.captions:
                 ass = captions.make_captions(path, path.with_suffix(".ass"), model_size=self.cfg.whisper_model)
-            vpath = render_vertical(path, path.with_name(path.stem + "-vertical.mp4"), ass_path=ass)
+            box = self._facecam_box(path)
+            graph, used = layout.choose_graph(self.cfg.layout, box, self.cfg.facecam_share)
+            vpath = render_vertical(path, path.with_name(path.stem + "-vertical.mp4"), ass_path=ass, graph=graph)
             if vpath:
                 record.vertical_file = str(vpath)
-                log.info("rendered vertical %s%s", vpath, " with captions" if ass else "")
+                record.layout = used
+                log.info("rendered vertical %s (%s layout%s)", vpath, used, ", captions" if ass else "")
                 if self.poster is not None:
                     text, title = self.cfg.render_post_text(stream.display_name, stream.login, stream.game_name,
                                                             stream.title, record.url)
