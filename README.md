@@ -60,3 +60,8 @@ python3 money_plan.py invest --monthly 500 --years 10 20 30 --rate 7
 ## License
 
 MIT. See `LICENSE`.
+
+
+## Twitch auto-clipper
+
+This repo also contains **clipbot**, an automatic Twitch clipper that watches the busiest GTA 6 streams, detects chat explosions and creates, downloads and vertical-renders the clips. See [README-clipbot.md](README-clipbot.md).

@@ -1,0 +1,10 @@
+services:
+  clipbot:
+    build: .
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    # First time: docker compose run --rm clipbot auth
