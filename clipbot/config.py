@@ -99,7 +99,12 @@ class Config:
     top_streams: int = 15            # how many top live streams of the game to watch
     languages: list[str] = field(default_factory=list)  # e.g. ["en"]; empty = all
     refresh_interval: float = 120.0  # seconds between stream-list refreshes
-    has_delay: bool = False          # Twitch "has_delay" when creating clips
+    clip_mode: str = "local"         # "local": streamlink buffer + ffmpeg (no token); "twitch": Create Clip API
+    clip_pre_seconds: float = 30.0   # local mode: seconds before the trigger to keep
+    clip_post_seconds: float = 0.0   # local mode: seconds after the trigger to keep
+    buffer_seconds: float = 180.0    # local mode: rolling buffer per channel
+    quality: str = "720p60,720p,480p,best"  # local mode: streamlink quality preference
+    has_delay: bool = False          # twitch mode: Twitch "has_delay" when creating clips
     download: bool = True
     vertical: bool = True
     captions: bool = True            # burn auto-captions into the vertical clip (needs faster-whisper)
@@ -127,6 +132,11 @@ class Config:
             top_streams=_env_int("TOP_STREAMS", d.top_streams),
             languages=_env_list("LANGUAGES"),
             refresh_interval=_env_float("REFRESH_INTERVAL", d.refresh_interval),
+            clip_mode=_env("CLIP_MODE", d.clip_mode).lower(),
+            clip_pre_seconds=_env_float("CLIP_PRE_SECONDS", d.clip_pre_seconds),
+            clip_post_seconds=_env_float("CLIP_POST_SECONDS", d.clip_post_seconds),
+            buffer_seconds=_env_float("BUFFER_SECONDS", d.buffer_seconds),
+            quality=_env("QUALITY", d.quality),
             has_delay=_env_bool("HAS_DELAY", d.has_delay),
             download=_env_bool("DOWNLOAD", d.download),
             vertical=_env_bool("VERTICAL", d.vertical),
@@ -153,17 +163,36 @@ class Config:
         return self.data_dir / "clips"
 
     @property
+    def buffer_dir(self) -> Path:
+        return self.data_dir / "buffer"
+
+    @property
+    def local_mode(self) -> bool:
+        return self.clip_mode == "local"
+
+    def has_twitch_auth(self) -> bool:
+        return bool(self.client_id) and self.token_path.is_file()
+
+    @property
     def log_path(self) -> Path:
         return self.data_dir / "clips.jsonl"
 
     def validate(self) -> list[str]:
         problems = []
-        if not self.client_id:
-            problems.append("TWITCH_CLIENT_ID is not set")
+        if self.clip_mode not in ("local", "twitch"):
+            problems.append("CLIP_MODE must be 'local' or 'twitch'")
+        if self.clip_mode == "twitch" and not self.client_id:
+            problems.append("CLIP_MODE=twitch needs TWITCH_CLIENT_ID")
         if self.top_streams < 0 or self.top_streams > 100:
             problems.append("TOP_STREAMS must be between 0 and 100")
         if self.top_streams == 0 and not self.channels:
             problems.append("Nothing to watch: set TOP_STREAMS > 0 or CHANNELS")
+        if self.local_mode and not self.channels and not self.client_id:
+            problems.append("Local mode without a Twitch app needs CHANNELS (top-stream discovery needs TWITCH_CLIENT_ID)")
+        if self.local_mode and self.clip_pre_seconds + self.clip_post_seconds > self.buffer_seconds:
+            problems.append("CLIP_PRE_SECONDS + CLIP_POST_SECONDS must fit inside BUFFER_SECONDS")
+        if self.local_mode and self.clip_pre_seconds <= 0:
+            problems.append("CLIP_PRE_SECONDS must be > 0")
         if self.detector.short_window >= self.detector.long_window:
             problems.append("DET_SHORT_WINDOW must be smaller than DET_LONG_WINDOW")
         if self.auto_post and not self.tiktok_cookies:

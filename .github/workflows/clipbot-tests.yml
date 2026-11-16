@@ -1,7 +1,7 @@
 name: clipbot tests
 on:
   push:
-    paths: ["clipbot/**", "tests/**", "requirements.txt", ".github/workflows/clipbot-tests.yml"]
+    paths: ["clipbot/**", "tests/**", "clip30.py", "requirements.txt", ".github/workflows/clipbot-tests.yml"]
   pull_request:
 jobs:
   test:

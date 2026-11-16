@@ -12,6 +12,7 @@ from . import __version__, captions, post
 from .auth import AuthError, TokenManager, TokenStore, validate
 from .config import Config, load_dotenv
 from .media import have_ffmpeg, have_ytdlp
+from .recorder import have_streamlink
 from .runner import Runner
 from .twitch_api import Helix, HelixError
 
@@ -43,9 +44,15 @@ def cmd_doctor(cfg: Config) -> int:
 
     for p in cfg.validate():
         check(p, False, "fix .env")
-    check("TWITCH_CLIENT_ID set", bool(cfg.client_id), "create an app at dev.twitch.tv/console/apps")
-    check("ffmpeg available", have_ffmpeg(), "install ffmpeg (needed for VERTICAL=1)")
-    check("yt-dlp available", have_ytdlp(), "pip install yt-dlp (needed for DOWNLOAD=1)")
+    print(f"      mode: {cfg.clip_mode} ({'streamlink buffer, no token' if cfg.local_mode else 'Twitch Create Clip API'})")
+    check("ffmpeg available", have_ffmpeg(), "install ffmpeg")
+    if cfg.local_mode:
+        check("streamlink available", have_streamlink(), "pip install streamlink")
+        check("CHANNELS or Twitch app for discovery", bool(cfg.channels) or bool(cfg.client_id),
+              "set CHANNELS=login1,login2 in .env")
+    else:
+        check("TWITCH_CLIENT_ID set", bool(cfg.client_id), "create an app at dev.twitch.tv/console/apps")
+        check("yt-dlp available", have_ytdlp(), "pip install yt-dlp (needed for DOWNLOAD=1)")
     if cfg.captions:
         print(f"[{'OK ' if captions.available() else '-- '}] faster-whisper for captions"
               f"{'' if captions.available() else ' - optional: pip install faster-whisper'}")
@@ -54,7 +61,10 @@ def cmd_doctor(cfg: Config) -> int:
         check("TIKTOK_COOKIES file exists", bool(cfg.tiktok_cookies) and os.path.isfile(cfg.tiktok_cookies),
               "export cookies.txt from tiktok.com (see README)")
     tokens = TokenStore(cfg.token_path).load()
-    check("saved Twitch token", tokens is not None, "run: python -m clipbot auth")
+    if cfg.local_mode and tokens is None:
+        print("[-- ] no Twitch token - fine in local mode; add one (`auth`) to auto-discover top streams")
+    else:
+        check("saved Twitch token", tokens is not None, "run: python -m clipbot auth")
     if tokens:
         v = validate(tokens.access_token)
         check("token valid on Twitch", v is not None, "run: python -m clipbot auth")
@@ -75,6 +85,9 @@ def cmd_doctor(cfg: Config) -> int:
 
 def cmd_streams(cfg: Config) -> int:
     runner = Runner(cfg)
+    if runner.helix is None:
+        print("No Twitch app/token: the bot will watch CHANNELS = " + ", ".join(cfg.channels))
+        return 0
     asyncio.run(runner.resolve_game())
     top = runner.helix.get_streams(game_id=runner.game_id, languages=cfg.languages or None) if runner.game_id else []
     pinned = runner.helix.get_streams(logins=cfg.channels) if cfg.channels else []
@@ -105,11 +118,12 @@ def cmd_run(cfg: Config) -> int:
             print(f"config error: {p}", file=sys.stderr)
         return 2
     runner = Runner(cfg)
-    try:
-        runner.helix.tokens.ensure()
-    except AuthError as e:
-        print(f"{e}", file=sys.stderr)
-        return 1
+    if runner.helix is not None:
+        try:
+            runner.helix.tokens.ensure()
+        except AuthError as e:
+            print(f"{e}", file=sys.stderr)
+            return 1
 
     async def main() -> None:
         loop = asyncio.get_running_loop()
@@ -118,8 +132,8 @@ def cmd_run(cfg: Config) -> int:
                 loop.add_signal_handler(sig, runner.stop)
             except NotImplementedError:  # Windows
                 pass
-        logging.getLogger("clipbot").info("clipbot %s starting; game=%r top=%d channels=%s",
-                                          __version__, cfg.game_name, cfg.top_streams, cfg.channels)
+        logging.getLogger("clipbot").info("clipbot %s starting; mode=%s game=%r top=%d channels=%s",
+                                          __version__, cfg.clip_mode, cfg.game_name, cfg.top_streams, cfg.channels)
         await runner.run()
 
     asyncio.run(main())

@@ -52,8 +52,8 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.cfg = Config(client_id="cid", top_streams=2, channels=["friend"], download=False, vertical=False,
-                          data_dir=Path(self.tmp.name), max_clips_per_hour=2, detector=DetectorConfig())
+        self.cfg = Config(client_id="cid", clip_mode="twitch", top_streams=2, channels=["friend"], download=False,
+                          vertical=False, data_dir=Path(self.tmp.name), max_clips_per_hour=2, detector=DetectorConfig())
         self.helix = FakeHelix()
         self.runner = Runner(self.cfg, helix=self.helix)
 
@@ -125,6 +125,85 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
                 break
         task.cancel()
         self.assertEqual(len(self.helix.created), 1)
+
+
+class FakeRecorder:
+    def __init__(self, login, buffer_dir, buffer_seconds=180.0, quality="", source_url=None):
+        self.login, self.live, self.started, self.stopped = login, True, False, False
+        self.cuts = []
+
+    async def start(self):
+        self.started = True
+
+    async def stop(self):
+        self.stopped = True
+
+    def is_live(self, stale_after=20.0):
+        return self.live
+
+    async def cut(self, trigger_ts, pre, post, dest):
+        self.cuts.append((pre, post))
+        Path(dest).parent.mkdir(parents=True, exist_ok=True)
+        Path(dest).write_bytes(b"video")
+        return Path(dest)
+
+
+class LocalModeTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.cfg = Config(client_id="", clip_mode="local", top_streams=0, channels=["alpha", "beta"], vertical=False,
+                          data_dir=Path(self.tmp.name), clip_pre_seconds=30, clip_post_seconds=0,
+                          detector=DetectorConfig())
+        import clipbot.runner as runner_mod
+        self._orig = runner_mod.Recorder
+        runner_mod.Recorder = FakeRecorder
+        self.addCleanup(setattr, runner_mod, "Recorder", self._orig)
+        self.runner = Runner(self.cfg)
+
+    async def test_no_helix_needed_and_recorders_follow_channels(self):
+        self.assertIsNone(self.runner.helix)
+        self.assertEqual(self.cfg.validate(), [])
+        joined = []
+
+        async def fake_set(wanted):
+            joined.append(set(wanted)); return set(wanted), set()
+
+        self.runner.pool.set_channels = fake_set  # type: ignore[assignment]
+        await self.runner.refresh_streams()
+        self.assertEqual(joined[-1], {"alpha", "beta"})
+        self.assertEqual(set(self.runner.recorders), {"alpha", "beta"})
+        self.assertTrue(all(r.started for r in self.runner.recorders.values()))
+        self.cfg.channels = ["alpha"]
+        beta = self.runner.recorders["beta"]
+        await self.runner.refresh_streams()
+        self.assertTrue(beta.stopped)
+        self.assertEqual(set(self.runner.recorders), {"alpha"})
+
+    async def test_trigger_cuts_30_seconds_and_logs(self):
+        self.runner.pool.set_channels = lambda w: asyncio.sleep(0, result=(set(w), set()))  # type: ignore
+        await self.runner.refresh_streams()
+        await self.runner.handle_trigger(trig("alpha"))
+        rec = self.runner.recorders["alpha"]
+        self.assertEqual(rec.cuts, [(30, 0)])
+        recs = ClipLog(self.cfg.log_path).read()
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0].channel, "alpha")
+        self.assertEqual(recs[0].url, "")
+        self.assertTrue(Path(recs[0].file).is_file())
+        self.assertEqual(recs[0].duration, 30)
+
+    async def test_offline_channel_skipped(self):
+        self.runner.pool.set_channels = lambda w: asyncio.sleep(0, result=(set(w), set()))  # type: ignore
+        await self.runner.refresh_streams()
+        self.runner.recorders["alpha"].live = False
+        await self.runner.handle_trigger(trig("alpha"))
+        self.assertEqual(self.runner.recorders["alpha"].cuts, [])
+        self.assertEqual(ClipLog(self.cfg.log_path).read(), [])
+
+    async def test_clip_now_needs_twitch(self):
+        with self.assertRaises(RuntimeError):
+            self.runner.clip_now("alpha")
 
 
 class RateLimiterTests(unittest.TestCase):

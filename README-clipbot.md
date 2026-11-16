@@ -1,50 +1,73 @@
 # clipbot: automatic Twitch clipper
 
-Watches the busiest live streams of a game (default: **Grand Theft Auto VI**), reads their
-chat, detects the moments when chat explodes, and creates a Twitch clip of that moment
-through the official Twitch API. Each clip is downloaded, rendered as a 9:16 vertical
-video for TikTok / Shorts / Reels, logged, and optionally posted to a Discord channel.
+Reads Twitch chat anonymously (no token), detects the moments when chat explodes, and
+clips the **30 seconds** that caused it. Each clip is rendered as a 9:16 vertical video
+with burned-in captions for TikTok / Shorts / Reels, logged, and optionally posted to a
+Discord channel.
+
+Two ways to get the video, chosen with `CLIP_MODE`:
+
+| | `local` (default) | `twitch` |
+|---|---|---|
+| Needs a Twitch login | **No** | Yes (one-time device-code login) |
+| How | [streamlink](https://streamlink.github.io) keeps a rolling buffer of the stream on disk; ffmpeg cuts the last 30s | Official Create Clip API, then yt-dlp download |
+| Clip length | Exactly `CLIP_PRE_SECONDS` (+ `CLIP_POST_SECONDS`) | Twitch's default (~30s) |
+| Which streams | `CHANNELS` you list (top-stream discovery needs a Twitch app) | `CHANNELS` + top N live streams of the game |
+| Cost | ~3 MB/s download per watched channel at 720p60 | Almost nothing |
 
 ```
-discover top streams  ->  read chat (anonymous IRC)  ->  spike detector
-      -> Twitch "Create Clip"  ->  download (yt-dlp)  ->  vertical render (ffmpeg)
-      -> data/clips.jsonl + Discord webhook
+channels  ->  streamlink -> ffmpeg rolling buffer (local mode)
+          ->  read chat (anonymous IRC)  ->  spike detector  ->  cut last 30 s
+          ->  captions (whisper)  ->  vertical render (ffmpeg)
+          ->  data/clips.jsonl + Discord webhook  (-> optional TikTok post)
 ```
 
-Everything uses official, ToS-compliant Twitch endpoints. No stream recording, no
-scraped browser tokens.
+## 1. Setup (local mode, no login, about 2 minutes)
 
-## 1. One-time setup (about 5 minutes)
+Requires Python 3.11+ and ffmpeg on PATH (`sudo apt install ffmpeg`, `brew install ffmpeg`,
+or `winget install Gyan.FFmpeg`).
 
-1. **Create a Twitch application** at https://dev.twitch.tv/console/apps
-   ("Register Your Application"):
-   - Name: anything, e.g. `my-clipbot`
-   - OAuth Redirect URL: `http://localhost` (required by the form, not used)
-   - Category: Application Integration
-   - Client Type: **Public**
-   - Copy the **Client ID**.
-2. **Install** (Python 3.11+ and ffmpeg):
-   ```bash
-   pip install -r requirements.txt
-   cp .env.example .env        # then paste your Client ID into TWITCH_CLIENT_ID
-   ```
-3. **Log in** (device code flow, no web server needed):
-   ```bash
-   python -m clipbot auth
-   ```
-   It prints a URL and a code. Open the URL, enter the code, approve. The token is saved
-   to `data/tokens.json` and refreshed automatically from then on. The Twitch account you
-   log in with is the account the clips are created under.
-4. **Check everything:**
-   ```bash
-   python -m clipbot doctor
-   ```
+```bash
+pip install -r requirements.txt          # streamlink + yt-dlp
+pip install faster-whisper               # optional: captions
+cp .env.example .env
+```
+
+Edit `.env`: put the streamers to watch in `CHANNELS=xqc,kaicenat,...`. That is all.
+
+```bash
+python -m clipbot doctor                 # should end with "All good."
+python -m clipbot run
+```
+
+Or skip `.env` entirely and pass the channels on the command line:
+
+```bash
+python clip30.py xqc kaicenat            # clip the last 30 s whenever their chat explodes
+python clip30.py xqc --seconds 45        # longer look-back
+```
+
+### Optional: Twitch app (top-stream discovery and/or twitch mode)
+
+1. Create an application at https://dev.twitch.tv/console/apps ("Register Your
+   Application"): any name, OAuth Redirect URL `http://localhost`, category Application
+   Integration, Client Type **Public**. Copy the Client ID into `TWITCH_CLIENT_ID`.
+2. `python -m clipbot auth` prints a URL and a code; approve it in a browser. The token is
+   saved to `data/tokens.json` and refreshed automatically.
+3. Now `TOP_STREAMS=15` makes the bot follow the 15 busiest live GTA VI streams
+   automatically, in either clip mode. `CLIP_MODE=twitch` additionally creates real Twitch
+   clips (on the account you logged in with) instead of cutting locally.
 
 ## 2. Run it
 
 ```bash
 python -m clipbot run
 ```
+
+In local mode the log shows `recording started` per channel once streamlink finds the
+stream; offline channels are retried every 20 seconds until they go live. A trigger looks
+like `TRIGGER xqc: spike score=9.4 rate=31.0/s baseline=6.2/s x5.0 users=120 hype=71%`
+followed by `CLIP xqc -> data/clips/xqc/20261119-213055-local.mp4`.
 
 Or with Docker (ffmpeg and yt-dlp included):
 
@@ -61,7 +84,7 @@ On a Linux VPS without Docker, `clipbot.service` is a ready systemd unit.
 | Command | What it does |
 |---|---|
 | `python -m clipbot streams` | Show which live streams would be monitored right now |
-| `python -m clipbot clip <login>` | Create a clip of that channel immediately |
+| `python -m clipbot clip <login>` | Create a Twitch clip of that channel immediately (needs the Twitch app) |
 | `python -m clipbot history` | List the clips made so far |
 | `python -m clipbot doctor` | Verify config, token, ffmpeg and yt-dlp |
 
@@ -88,9 +111,11 @@ For every watched channel the bot keeps the last 120 seconds of chat and compare
 Independently, `DET_CLIP_REQUEST_USERS` (3) different people typing "clip" within the
 window triggers a clip immediately.
 
-Twitch's Create Clip captures the stream around the moment of the request (about 25
-seconds before it and a few after), so triggering as soon as chat reacts lands the
-actual moment in the clip. Set `HAS_DELAY=true` if clips consistently come out too early.
+Chat reacts a few seconds *after* the moment, and the detector needs about three seconds
+to confirm a spike, so a 30-second look-back (`CLIP_PRE_SECONDS`) puts the moment roughly
+20-25 seconds into the clip with its run-up included. Raise `CLIP_POST_SECONDS` to keep
+the reaction too. In twitch mode, Create Clip captures ~25s before the request on its own;
+set `HAS_DELAY=true` if those clips consistently come out too early.
 
 Tuning tips:
 - Too many boring clips: raise `DET_SPIKE_MULTIPLIER` to 4-5 or `DET_MIN_HYPE_FRACTION` to 0.5.
@@ -172,17 +197,22 @@ Reviewed while building this (none are required):
 python -m unittest discover -s tests -v
 ```
 
-No network needed. The suite covers the detector (bursts, spam, sustain, raids, cooldown,
+The suite needs no internet. It covers the detector (bursts, spam, sustain, raids, cooldown,
 big chats, reconnect gaps), IRC parsing plus a fake Twitch chat server, the Helix client
 (token refresh, 429 / 503 handling, clip polling), the device-code login, the orchestrator
 (stream selection, hourly cap, blocked channels, chat-to-clip path), caption grouping and
-a real ffmpeg vertical render with burned-in subtitles, retention pruning and posting.
+a real ffmpeg vertical render with burned-in subtitles, retention pruning, posting, and an
+end-to-end local-mode run: a live HLS stream generated by ffmpeg and served over HTTP is
+pulled by streamlink into the rolling buffer and cut into a clip.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| `no saved token` | `python -m clipbot auth` |
+| `no saved token` | Only needed for `CLIP_MODE=twitch` or `TOP_STREAMS`; run `python -m clipbot auth` |
+| `has no buffered video` | streamlink has not found the stream yet (offline, or the first seconds after it went live) |
+| `error: No playable streams found` in the log | Channel offline, wrong login, or streamlink needs an update: `pip install -U streamlink` |
+| Buffer eats disk | Lower `BUFFER_SECONDS` (180s at 720p60 is about 0.5 GB per channel) or `QUALITY=480p` |
 | `game 'Grand Theft Auto VI' not found` | The category is not live yet; use `CHANNELS` meanwhile |
 | `cannot clip <channel> (HTTP 403)` | That streamer restricted clipping; the bot skips them for an hour |
 | Clips not downloading | `pip install -U yt-dlp` (Twitch changes its CDN often) |

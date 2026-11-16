@@ -64,4 +64,4 @@ MIT. See `LICENSE`.
 
 ## Twitch auto-clipper
 
-This repo also contains **clipbot**, an automatic Twitch clipper that watches the busiest GTA 6 streams, detects chat explosions and creates, downloads and vertical-renders the clips. See [README-clipbot.md](README-clipbot.md).
+This repo also contains **clipbot**, an automatic Twitch clipper: it reads chat anonymously, detects when chat explodes, and clips the last 30 seconds of the stream (streamlink + ffmpeg, no Twitch login) or via the Twitch API, then renders captioned vertical videos. Quick start: `python clip30.py <channel>`. See [README-clipbot.md](README-clipbot.md).

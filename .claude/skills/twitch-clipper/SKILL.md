@@ -18,12 +18,21 @@ first if anything below is unclear.
 - `captions.py`: faster-whisper words -> `group_words()` -> `write_ass()`; injectable transcriber.
 - `retention.py`: `enforce(root, max_gb, max_clips)` prunes oldest clip groups.
 - `post.py`: optional TikTok upload through the `tiktok-uploader` package (opt-in, risky).
-- `runner.py`: `Runner` ties discovery, chat and clipping together; `make_clip()` is the pipeline.
+- `recorder.py`: local mode. `Recorder` supervises `streamlink --stdout | ffmpeg -f segment` into a
+  rolling buffer of 2s TS files; `cut()` concatenates the last N seconds into an MP4.
+- `runner.py`: `Runner` ties discovery, chat and clipping together. Local mode:
+  `make_clip_local()` -> `_finish()`; twitch mode: `make_clip()` -> `_finish()`.
 - `__main__.py`: CLI `auth | doctor | streams | clip <login> | run | history`.
+
+## Modes
+`CLIP_MODE=local` (default) needs no Twitch login: streamlink + ffmpeg + anonymous chat.
+Without a Twitch app it watches exactly `CHANNELS`. `CLIP_MODE=twitch` uses the Create
+Clip API and needs `auth`. A Twitch app + token enables `TOP_STREAMS` discovery in both.
 
 ## Operating checklist
 1. `python -m clipbot doctor` must print `All good.` before `run`.
-2. If the token is missing or invalid: `python -m clipbot auth` (needs a browser once).
+2. Local mode: make sure `CHANNELS` is set and streamlink + ffmpeg are installed.
+   Twitch mode / discovery: `python -m clipbot auth` once (needs a browser).
 3. `python -m clipbot streams` shows what would be watched; empty output means the game
    category has no live streams and `CHANNELS` is empty or offline.
 4. `python -m clipbot run` is the long-running process. In Docker: `docker compose up -d`.
@@ -39,8 +48,10 @@ test case that reproduces the chat pattern in question (see `tests/test_detector
 helper `chatter()`).
 
 ## Rules
-- Only official Twitch endpoints (Helix + anonymous IRC). Never add stream recording,
-  GQL scraping or browser-token tricks.
+- Video comes from streamlink (public HLS) or the Helix Create Clip API; chat from anonymous
+  IRC. Never add GQL scraping with hard-coded web client ids or browser-cookie tricks.
+- The recorder test spins up a local HLS stream; run `tests.test_recorder` after touching
+  `recorder.py`.
 - Network calls go through `clipbot/http.py:request` so tests can stub them; keep it that way.
 - Never turn on `AUTO_POST` yourself; it is the user's call and carries a TikTok ban risk.
 - Related repos and what was borrowed are listed in README-clipbot.md section 6.
